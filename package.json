@@ -1,0 +1,15 @@
+{
+  "name": "vizor-cli",
+  "version": "1.0.0",
+  "description": "Vizor CLI — lightweight layout analysis for AI agents. Extracts page structure, styles, and detects layout problems without screenshots.",
+  "main": "vizor.js",
+  "bin": {
+    "vizor": "./vizor.js"
+  },
+  "keywords": ["layout", "css", "accessibility", "testing", "cli", "playwright", "ai", "layout-analysis"],
+  "author": "serter2069",
+  "license": "MIT",
+  "peerDependencies": {
+    "playwright": ">=1.40.0"
+  }
+}
