@@ -1,19 +1,47 @@
 #!/usr/bin/env node
 
-// Resolve playwright from global npm modules or common locations
+// Resolve playwright from isolated ~/.vizor runtime, global npm, or local project
 let playwright;
-const globalRoot = require('child_process').execSync('npm root -g').toString().trim();
+const os = require('os');
+const path = require('path');
+const fsSync = require('fs');
+const { execSync } = require('child_process');
+
+const vizorHome = path.join(os.homedir(), '.vizor');
+const vizorPlaywright = path.join(vizorHome, 'node_modules/playwright');
+
+// Self-bootstrap: if isolated runtime missing, install it once
+if (!fsSync.existsSync(vizorPlaywright)) {
+  console.error('[vizor] First-run setup: installing playwright + chromium into ~/.vizor (~165MB download)...');
+  try {
+    fsSync.mkdirSync(vizorHome, { recursive: true });
+    const pkgPath = path.join(vizorHome, 'package.json');
+    if (!fsSync.existsSync(pkgPath)) {
+      fsSync.writeFileSync(pkgPath, JSON.stringify({ name: 'vizor-runtime', version: '1.0.0', private: true }, null, 2));
+    }
+    execSync('npm install playwright', { cwd: vizorHome, stdio: 'inherit' });
+    execSync('npx playwright install chromium', { cwd: vizorHome, stdio: 'inherit' });
+    console.error('[vizor] Setup complete.');
+  } catch (err) {
+    console.error(`[vizor] Bootstrap failed: ${err.message}`);
+    console.error('[vizor] Manual fix: cd ~/.vizor && npm install playwright && npx playwright install chromium');
+    process.exit(1);
+  }
+}
+
+const globalRoot = execSync('npm root -g').toString().trim();
 const tryPaths = [
+  vizorPlaywright,
   'playwright',
-  require('path').join(globalRoot, '@playwright/cli/node_modules/playwright'),
-  require('path').join(globalRoot, '@playwright/test/node_modules/playwright'),
-  require('path').join(globalRoot, '@playwright/mcp/node_modules/playwright'),
+  path.join(globalRoot, '@playwright/cli/node_modules/playwright'),
+  path.join(globalRoot, '@playwright/test/node_modules/playwright'),
+  path.join(globalRoot, '@playwright/mcp/node_modules/playwright'),
 ];
 for (const p of tryPaths) {
   try { playwright = require(p); break; } catch (_) {}
 }
 if (!playwright) {
-  console.error('Error: playwright not found. Install: npm i -g playwright');
+  console.error('Error: playwright not found. Manual fix: cd ~/.vizor && npm install playwright && npx playwright install chromium');
   process.exit(1);
 }
 const { chromium } = playwright;
