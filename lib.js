@@ -502,7 +502,9 @@ function extractLayout(maxDepth) {
         const isLarge = fontSize >= 24 || (fontSize >= 18.67 && fontWeight >= 700);
         const threshold = isLarge ? 3.0 : 4.5;
         if (ratio < threshold) {
-          warnings.push(`low-contrast (${ratio.toFixed(2)}:1, need ${threshold})`);
+          const fgStr = rgbToHex(`rgb(${effectiveFg[0]}, ${effectiveFg[1]}, ${effectiveFg[2]})`);
+          const bgStr = rgbToHex(`rgb(${bg[0]}, ${bg[1]}, ${bg[2]})`);
+          warnings.push(`low-contrast (${ratio.toFixed(2)}:1 ${fgStr} on ${bgStr}, need ${threshold})`);
         }
       }
     }
@@ -831,9 +833,12 @@ function formatProblems(problems, url, viewport) {
         else if (t === 'no-label') desc = ` — needs text, aria-label, or title`;
         else if (t === 'clickable-no-role') desc = ` — add role="button" for accessibility`;
         else if (t === 'ghost') desc = ` — invisible element covering content`;
-        else if (t === 'spacing') desc = ` — siblings have different margins`;
+        else if (t === 'spacing') desc = p.detail && p.detail.includes('(') ? ` — ${p.detail.slice(p.detail.indexOf('(') + 1, p.detail.lastIndexOf(')'))}` : ` — siblings have different margins`;
         else if (t === 'z-conflict') desc = ` — may overlap`;
-        else if (t === 'low-contrast') desc = ` — WCAG AA fails`;
+        else if (t === 'low-contrast') {
+          const m = p.detail && p.detail.match(/\(([^)]+)\)/);
+          desc = m ? ` — ${m[1]}` : ` — WCAG AA fails`;
+        }
         const stable = p.stableSelector && p.stableSelector !== p.selector
           ? `  ⟶  ${p.stableSelector}`
           : '';
