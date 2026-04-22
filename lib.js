@@ -911,8 +911,225 @@ function diffOutput(current, baselinePath) {
   return output.join('\n');
 }
 
+// Collect computed-style extras for --describe (runs in page context via page.evaluate).
+// Self-contained: no external helpers. Returns { fonts, pageBg, buttonPairs, surfaces }.
+function collectComputedExtras() {
+  const canvas = document.createElement('canvas').getContext('2d');
+  function resolveRgba(str) {
+    if (!str) return null;
+    let m = str.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?/);
+    if (m) return [+m[1], +m[2], +m[3], m[4] !== undefined ? parseFloat(m[4]) : 1];
+    try {
+      canvas.fillStyle = '#000';
+      canvas.fillStyle = str;
+      const r = canvas.fillStyle;
+      const hm = r.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+      if (hm) return [parseInt(hm[1], 16), parseInt(hm[2], 16), parseInt(hm[3], 16), 1];
+      m = r.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?/);
+      if (m) return [+m[1], +m[2], +m[3], m[4] !== undefined ? parseFloat(m[4]) : 1];
+    } catch (_) {}
+    return null;
+  }
+  function rgbaToHex(c) {
+    if (!c) return null;
+    return '#' + [c[0], c[1], c[2]].map(n => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')).join('');
+  }
+  function relLum(r, g, b) {
+    const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  }
+  function ratio(fg, bg) {
+    const la = relLum(fg[0], fg[1], fg[2]);
+    const lb = relLum(bg[0], bg[1], bg[2]);
+    const hi = Math.max(la, lb), lo = Math.min(la, lb);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  function blend(fg, bg) {
+    if (fg[3] >= 0.999) return [fg[0], fg[1], fg[2], 1];
+    const a = fg[3];
+    return [
+      Math.round(fg[0] * a + bg[0] * (1 - a)),
+      Math.round(fg[1] * a + bg[1] * (1 - a)),
+      Math.round(fg[2] * a + bg[2] * (1 - a)),
+      1,
+    ];
+  }
+  function ancestorBg(el) {
+    let p = el.parentElement;
+    while (p) {
+      const s = getComputedStyle(p);
+      const c = resolveRgba(s.backgroundColor);
+      if (c && c[3] > 0.05) return c;
+      p = p.parentElement;
+    }
+    return [255, 255, 255, 1];
+  }
+  function selfBg(el) {
+    const s = getComputedStyle(el);
+    const c = resolveRgba(s.backgroundColor);
+    if (c && c[3] > 0.05) return c;
+    return ancestorBg(el);
+  }
+  function isVisible(el) {
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 2 && r.height > 2;
+  }
+  function firstFamily(stack) {
+    if (!stack) return '(unknown)';
+    const first = stack.split(',')[0].trim();
+    return first.replace(/^["']|["']$/g, '');
+  }
+  function cssPath(el) {
+    if (!el || el.nodeType !== 1) return '';
+    if (el.id && /^[A-Za-z][\w-]*$/.test(el.id)) return '#' + el.id;
+    const parts = [];
+    let cur = el;
+    while (cur && cur.nodeType === 1 && parts.length < 4) {
+      let sel = cur.tagName.toLowerCase();
+      if (cur.classList && cur.classList.length) {
+        const cls = Array.from(cur.classList).filter(c => /^[A-Za-z][\w-]*$/.test(c)).slice(0, 2);
+        if (cls.length) sel += '.' + cls.join('.');
+      }
+      parts.unshift(sel);
+      cur = cur.parentElement;
+      if (cur === document.body) break;
+    }
+    return parts.join(' > ');
+  }
+
+  // --- Fonts: walk all visible elements with text, group by first family token ---
+  const fontMap = new Map(); // family -> { nodes, sizes: Set }
+  const all = document.body ? document.body.querySelectorAll('*') : [];
+  for (const el of all) {
+    if (!isVisible(el)) continue;
+    // Only count elements that render their own text (have direct text node child)
+    let hasOwnText = false;
+    for (const n of el.childNodes) {
+      if (n.nodeType === 3 && n.nodeValue && n.nodeValue.trim().length >= 1) { hasOwnText = true; break; }
+    }
+    if (!hasOwnText) continue;
+    const cs = getComputedStyle(el);
+    const fam = firstFamily(cs.fontFamily);
+    const size = Math.round(parseFloat(cs.fontSize) || 0);
+    let rec = fontMap.get(fam);
+    if (!rec) { rec = { nodes: 0, sizes: new Set() }; fontMap.set(fam, rec); }
+    rec.nodes++;
+    if (size) rec.sizes.add(size);
+  }
+  const fonts = [...fontMap.entries()]
+    .sort((a, b) => b[1].nodes - a[1].nodes)
+    .map(([family, rec]) => ({
+      family,
+      nodes: rec.nodes,
+      sizes: [...rec.sizes].sort((a, b) => a - b),
+    }));
+
+  // --- Page background ---
+  let pageBg = null;
+  if (document.body) {
+    const b = resolveRgba(getComputedStyle(document.body).backgroundColor);
+    if (b && b[3] > 0.05) pageBg = b;
+  }
+  if (!pageBg && document.documentElement) {
+    const h = resolveRgba(getComputedStyle(document.documentElement).backgroundColor);
+    if (h && h[3] > 0.05) pageBg = h;
+  }
+  if (!pageBg) pageBg = [255, 255, 255, 1];
+  const pageBgHex = rgbaToHex(pageBg);
+
+  // --- Button pairs ---
+  const CLICK_LABEL_RX = /войти|submit|отправить|send|save|click|open|подать|продолжить|continue|войти|sign in|log in|signin|login|subscribe|buy|купить|заказать|register|регистр/i;
+  const seen = new Set();
+  const buttonPairs = [];
+  const candidates = [];
+  // Native buttons, role=button, links with text, clickable divs
+  for (const el of all) {
+    if (!isVisible(el)) continue;
+    const tag = el.tagName.toLowerCase();
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    const aria = el.getAttribute('aria-label') || '';
+    let isBtn = false;
+    if (tag === 'button') isBtn = true;
+    else if (role === 'button') isBtn = true;
+    else if (tag === 'a') {
+      const t = (el.textContent || '').trim();
+      if (t.length >= 1) isBtn = true;
+    } else if (tag === 'input') {
+      const t = (el.getAttribute('type') || '').toLowerCase();
+      if (t === 'submit' || t === 'button') isBtn = true;
+    } else if (el.onclick || el.hasAttribute('onclick')) {
+      isBtn = true;
+    } else if (aria && CLICK_LABEL_RX.test(aria)) {
+      isBtn = true;
+    }
+    if (!isBtn) continue;
+    const txtRaw = ((tag === 'input' ? (el.value || el.getAttribute('value') || '') : (el.textContent || '')) || aria).trim().replace(/\s+/g, ' ');
+    if (!txtRaw) continue;
+    const txt = txtRaw.length > 30 ? txtRaw.slice(0, 27) + '...' : txtRaw;
+    const cs = getComputedStyle(el);
+    const fg = resolveRgba(cs.color);
+    if (!fg) continue;
+    const bg = selfBg(el);
+    const fgEff = blend(fg, bg);
+    const key = `${txt}|${rgbaToHex(fgEff)}|${rgbaToHex(bg)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const fontSize = parseFloat(cs.fontSize) || 14;
+    const fontWeight = parseInt(cs.fontWeight) || 400;
+    const threshold = (fontSize >= 18 || (fontSize >= 14 && fontWeight >= 700)) ? 3.0 : 4.5;
+    const r = ratio(fgEff, bg);
+    candidates.push({
+      text: txt,
+      fg: rgbaToHex(fgEff),
+      bg: rgbaToHex(bg),
+      ratio: r,
+      threshold,
+      pass: r >= threshold,
+      selector: cssPath(el),
+    });
+  }
+  // Cap to 20 to keep output readable
+  buttonPairs.push(...candidates.slice(0, 20));
+
+  // --- Surface backgrounds: top-level chrome (nav/header/footer/aside + role=navigation) ---
+  const surfaces = [];
+  const surfSel = 'nav, header, footer, aside, [role=navigation], [role=banner], [role=contentinfo]';
+  const seenSurf = new Set();
+  for (const el of document.querySelectorAll(surfSel)) {
+    if (!isVisible(el)) continue;
+    const cs = getComputedStyle(el);
+    const bg = resolveRgba(cs.backgroundColor);
+    if (!bg || bg[3] < 0.05) continue;
+    const tag = el.tagName.toLowerCase();
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    const rect = el.getBoundingClientRect();
+    const vh = window.innerHeight || 900;
+    let label;
+    if (tag === 'nav' || role === 'navigation') {
+      label = (rect.top > vh * 0.6) ? 'bottom nav' : 'nav';
+    } else if (tag === 'header' || role === 'banner') {
+      label = 'header';
+    } else if (tag === 'footer' || role === 'contentinfo') {
+      label = 'footer';
+    } else if (tag === 'aside') {
+      label = 'aside';
+    } else {
+      label = tag;
+    }
+    const hex = rgbaToHex(bg);
+    const key = label + '|' + hex;
+    if (seenSurf.has(key)) continue;
+    seenSurf.add(key);
+    surfaces.push({ label, bg: hex });
+  }
+
+  return { fonts, pageBg: pageBgHex, buttonPairs, surfaces };
+}
+
 // --describe mode: synthesize human-readable design summary from tree
-function describeTree(tree, url, viewport) {
+function describeTree(tree, url, viewport, extras) {
   const stats = {
     bgArea: new Map(),
     fgArea: new Map(),
@@ -1379,6 +1596,42 @@ function describeTree(tree, url, viewport) {
     }
   }
 
+  // --- Extras from computed styles (optional): Fonts, Page background, Button pairs, Surfaces ---
+  if (extras && typeof extras === 'object') {
+    if (Array.isArray(extras.fonts) && extras.fonts.length) {
+      lines.push('');
+      lines.push('Fonts (real computed):');
+      for (const f of extras.fonts) {
+        const sizes = f.sizes && f.sizes.length ? ` — sizes ${f.sizes.join(',')}` : '';
+        lines.push(`  ${f.family} (${f.nodes} nodes)${sizes}`);
+      }
+    }
+    if (extras.pageBg) {
+      lines.push('');
+      lines.push(`Page background: ${extras.pageBg}`);
+    }
+    if (Array.isArray(extras.buttonPairs) && extras.buttonPairs.length) {
+      lines.push('');
+      lines.push('Button pairs (fg on bg @ ratio):');
+      const maxTxt = Math.min(30, extras.buttonPairs.reduce((m, p) => Math.max(m, (p.text || '').length + 2), 0));
+      for (const p of extras.buttonPairs) {
+        const quoted = `"${p.text}"`;
+        const padded = quoted.padEnd(maxTxt + 2, ' ');
+        const status = p.pass ? 'OK' : 'FAIL';
+        const r = (typeof p.ratio === 'number') ? p.ratio.toFixed(2) : '?';
+        lines.push(`  ${padded} ${p.fg} on ${p.bg} @ ${r}:1 ${status}`);
+      }
+    }
+    if (Array.isArray(extras.surfaces) && extras.surfaces.length) {
+      lines.push('');
+      lines.push('Surface backgrounds:');
+      const maxLbl = extras.surfaces.reduce((m, s) => Math.max(m, (s.label || '').length), 0);
+      for (const s of extras.surfaces) {
+        lines.push(`  ${(s.label || '').padEnd(maxLbl + 2, ' ')}${s.bg}`);
+      }
+    }
+  }
+
   return lines.join('\n');
 }
 
@@ -1787,6 +2040,7 @@ module.exports = {
   formatProblems,
   diffOutput,
   describeTree,
+  collectComputedExtras,
   extractTreeFromPage,
   snapshotElementStyle,
   formatHoverDiff,

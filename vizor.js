@@ -57,6 +57,7 @@ const {
   formatProblems,
   diffOutput,
   describeTree,
+  collectComputedExtras,
   extractTreeFromPage,
   snapshotElementStyle,
   formatHoverDiff,
@@ -370,7 +371,9 @@ async function run() {
           console.log(`\nSaved to ${opts.save}`);
         }
       } else if (opts.describe) {
-        const output = describeTree(tree, opts.url, opts.viewport);
+        let extras = null;
+        try { extras = await page.evaluate(collectComputedExtras); } catch (_) { extras = null; }
+        const output = describeTree(tree, opts.url, opts.viewport, extras);
         console.log(output);
         if (opts.save) {
           fs.writeFileSync(opts.save, output, 'utf-8');
