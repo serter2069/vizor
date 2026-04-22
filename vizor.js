@@ -64,6 +64,9 @@ const {
   formatAriaTree,
   captureViewport,
   formatSweep,
+  runActions,
+  formatActionLog,
+  parseFlowFile,
 } = require('./lib.js');
 
 const args = process.argv.slice(2);
@@ -84,6 +87,8 @@ function parseArgs(args) {
     hover: null,
     sweep: false,
     aria: false,
+    actions: [],
+    actionsLog: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -98,7 +103,41 @@ function parseArgs(args) {
     } else if (a === '--no-warnings') {
       opts.warnings = false;
     } else if (a === '--wait' && args[i + 1]) {
-      opts.wait = parseInt(args[++i], 10);
+      // Ambiguous: if next arg is an integer, treat as initial render wait.
+      // Otherwise it's a selector for wait-for (interactive). Integers-only here.
+      const next = args[i + 1];
+      if (/^\d+$/.test(next)) {
+        opts.wait = parseInt(args[++i], 10);
+      } else {
+        opts.actions.push({ type: 'wait-for', selector: args[++i] });
+      }
+    } else if (a === '--wait-for' && args[i + 1]) {
+      opts.actions.push({ type: 'wait-for', selector: args[++i] });
+    } else if (a === '--wait-ms' && args[i + 1]) {
+      opts.actions.push({ type: 'wait', ms: parseInt(args[++i], 10) });
+    } else if (a === '--click' && args[i + 1]) {
+      opts.actions.push({ type: 'click', selector: args[++i] });
+    } else if (a === '--fill' && args[i + 2]) {
+      opts.actions.push({ type: 'fill', selector: args[++i], value: args[++i] });
+    } else if (a === '--type' && args[i + 2]) {
+      opts.actions.push({ type: 'type', selector: args[++i], value: args[++i] });
+    } else if (a === '--press' && args[i + 1]) {
+      opts.actions.push({ type: 'press', key: args[++i] });
+    } else if (a === '--goto' && args[i + 1]) {
+      opts.actions.push({ type: 'goto', url: args[++i] });
+    } else if (a === '--screenshot' && args[i + 1]) {
+      opts.actions.push({ type: 'screenshot', file: args[++i] });
+    } else if (a === '--assert-exists' && args[i + 1]) {
+      opts.actions.push({ type: 'assert-exists', selector: args[++i] });
+    } else if (a === '--assert-text' && args[i + 2]) {
+      opts.actions.push({ type: 'assert-text', selector: args[++i], value: args[++i] });
+    } else if (a === '--assert-url' && args[i + 1]) {
+      opts.actions.push({ type: 'assert-url', value: args[++i] });
+    } else if (a === '--flow' && args[i + 1]) {
+      const steps = parseFlowFile(args[++i]);
+      opts.actions.push(...steps);
+    } else if (a === '--actions-log') {
+      opts.actionsLog = true;
     } else if (a === '--cdp' && args[i + 1]) {
       opts.cdp = parseInt(args[++i], 10);
     } else if (a === '--save' && args[i + 1]) {
@@ -118,21 +157,40 @@ function parseArgs(args) {
     } else if (a === '--aria') {
       opts.aria = true;
     } else if (a === '--help' || a === '-h') {
-      console.log(`Usage: layout-map <url> [options]
+      console.log(`Usage: vizor <url> [options]
+
+Analysis modes (pick one; default is tree output):
+  --describe        synthesize design summary (palette, typography, layout)
+  --problems        show ONLY detected problems, skip full tree
+  --aria            emit ARIA tree
+  --hover SEL       capture :hover style delta for SEL
+  --compare         compare mobile (430x932) vs desktop (1440x900)
+  --sweep           analyze across 5 viewports (320/430/768/1024/1440)
+  --diff FILE       compare current tree with saved baseline
+
+Interactive actions (applied in order, before analysis mode):
+  --click SEL               click element
+  --fill SEL VAL            clear + fill input
+  --type SEL VAL            type into input (no clear)
+  --press KEY               press keyboard key (Enter, Tab, ArrowDown, …)
+  --goto URL                navigate mid-flow
+  --wait-for SEL            wait until SEL visible (10s max)
+  --wait-ms N               sleep N milliseconds
+  --assert-exists SEL       fail run if SEL missing
+  --assert-text SEL TEXT    fail if element text lacks TEXT
+  --assert-url TEXT         fail if current URL lacks TEXT
+  --screenshot FILE         save PNG to FILE
+  --flow FILE               load actions from JSON array or line-based file
+  --actions-log             always print the action log (default: only on failure)
+
+Setup:
   --viewport WxH    viewport size (default: 430x932)
   --depth N         max tree depth (default: 8, describe auto-uses ≥12)
   --desktop         shortcut for --viewport 1440x900
   --no-warnings     hide warning flags
-  --wait N          ms to wait for render (default: 2000)
+  --wait N          ms initial render wait (default: 2000)
   --cdp PORT        connect via CDP instead of launching headless
-  --save FILE       save output to file (baseline)
-  --diff FILE       compare current layout with saved baseline
-  --problems        show ONLY detected problems, skip full tree
-  --compare         compare mobile (430x932) vs desktop (1440x900)
-  --describe        synthesize design summary (palette, typography, layout)
-  --hover SEL       capture :hover style delta for selector SEL
-  --sweep           analyze across 5 viewports (320/430/768/1024/1440)
-  --aria            emit ARIA tree (Playwright accessibility.snapshot)`);
+  --save FILE       save analysis output to file`);
       process.exit(0);
     } else if (!a.startsWith('--') && !opts.url) {
       opts.url = a;
@@ -140,11 +198,16 @@ function parseArgs(args) {
   }
 
   if (!opts.url) {
-    console.error('Error: URL required. Usage: layout-map <url> [options]');
+    console.error('Error: URL required. Usage: vizor <url> [options]');
     process.exit(1);
   }
 
   return opts;
+}
+
+// true if any of the analysis modes is selected
+function hasAnalysisMode(opts) {
+  return !!(opts.problems || opts.compare || opts.describe || opts.hover || opts.sweep || opts.aria || opts.diff);
 }
 
 async function run() {
@@ -245,7 +308,30 @@ async function run() {
 
       // Describe mode benefits from deeper traversal (nav items, hero text often nested)
       if (opts.describe && opts.depth < 12) opts.depth = 12;
-      const tree = await extractTreeFromPage(page, opts);
+
+      // Initial goto + render wait (extractTreeFromPage does its own goto too — but we need the page
+      // loaded before actions run. If actions include an early --goto they'll override cleanly.)
+      if (opts.actions.length > 0) {
+        await page.goto(opts.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        try { await page.waitForLoadState('networkidle', { timeout: 4000 }); } catch {}
+        await page.waitForTimeout(opts.wait);
+        const result = await runActions(page, opts.actions);
+        if (!result.ok || opts.actionsLog) {
+          console.error(formatActionLog(result));
+        }
+        if (!result.ok) {
+          process.exit(2);
+        }
+        // If no analysis mode requested and no failure, print the success log and exit.
+        if (!hasAnalysisMode(opts)) {
+          if (!opts.actionsLog) console.log(formatActionLog(result));
+          return;
+        }
+        // Analysis mode: extract tree from CURRENT state (no re-goto).
+        var tree = await page.evaluate(extractLayout, opts.depth);
+      } else {
+        var tree = await extractTreeFromPage(page, opts);
+      }
 
       if (!tree) {
         console.error('Error: Could not extract layout (body not found or invisible)');

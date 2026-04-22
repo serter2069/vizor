@@ -1628,6 +1628,153 @@ function formatSweep(results, url) {
 }
 
 
+// Interactive action runner — applies a sequence of {type, ...args} steps against a Playwright page.
+// Returns { ok, steps:[{i, type, status, detail, ms}], failed:<step|null> }.
+async function runActions(page, actions, opts = {}) {
+  const log = [];
+  const maxWait = opts.maxWait || 10000;
+  let failed = null;
+  for (let i = 0; i < actions.length; i++) {
+    const step = actions[i];
+    const t0 = Date.now();
+    const rec = { i, type: step.type, status: 'ok', detail: '', ms: 0 };
+    try {
+      switch (step.type) {
+        case 'goto':
+          await page.goto(step.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          try { await page.waitForLoadState('networkidle', { timeout: 3000 }); } catch {}
+          rec.detail = step.url;
+          break;
+        case 'click':
+          await page.locator(step.selector).first().click({ timeout: maxWait });
+          rec.detail = step.selector;
+          break;
+        case 'fill':
+          await page.locator(step.selector).first().fill(step.value, { timeout: maxWait });
+          rec.detail = `${step.selector} = "${step.value}"`;
+          break;
+        case 'type':
+          await page.locator(step.selector).first().pressSequentially(step.value, { timeout: maxWait });
+          rec.detail = `${step.selector} += "${step.value}"`;
+          break;
+        case 'press':
+          await page.keyboard.press(step.key);
+          rec.detail = step.key;
+          break;
+        case 'wait':
+          await page.waitForTimeout(step.ms);
+          rec.detail = `${step.ms}ms`;
+          break;
+        case 'wait-for':
+          await page.locator(step.selector).first().waitFor({ state: step.state || 'visible', timeout: maxWait });
+          rec.detail = `${step.selector} (${step.state || 'visible'})`;
+          break;
+        case 'screenshot': {
+          const file = step.file;
+          await page.screenshot({ path: file, fullPage: !!step.full });
+          rec.detail = file;
+          break;
+        }
+        case 'assert-exists': {
+          const count = await page.locator(step.selector).count();
+          if (count === 0) throw new Error(`not found: ${step.selector}`);
+          rec.detail = `${step.selector} (${count} match${count !== 1 ? 'es' : ''})`;
+          break;
+        }
+        case 'assert-text': {
+          const loc = page.locator(step.selector).first();
+          const text = (await loc.textContent({ timeout: maxWait }) || '').trim();
+          const want = (step.value || '').trim();
+          if (!text.includes(want)) throw new Error(`text mismatch: "${text.slice(0, 80)}" ∌ "${want}"`);
+          rec.detail = `${step.selector} ∋ "${want}"`;
+          break;
+        }
+        case 'assert-url': {
+          const cur = page.url();
+          if (!cur.includes(step.value)) throw new Error(`url mismatch: ${cur} ∌ ${step.value}`);
+          rec.detail = `url ∋ "${step.value}"`;
+          break;
+        }
+        default:
+          throw new Error(`unknown action: ${step.type}`);
+      }
+    } catch (err) {
+      rec.status = 'fail';
+      rec.detail = err.message;
+      failed = rec;
+    }
+    rec.ms = Date.now() - t0;
+    log.push(rec);
+    if (failed) break;
+  }
+  return { ok: !failed, steps: log, failed };
+}
+
+function formatActionLog(result) {
+  const lines = [];
+  lines.push(`ACTIONS: ${result.steps.length} step${result.steps.length !== 1 ? 's' : ''} — ${result.ok ? 'OK' : 'FAILED at step ' + (result.failed.i + 1)}`);
+  lines.push('─'.repeat(40));
+  for (const s of result.steps) {
+    const mark = s.status === 'ok' ? '✓' : '✗';
+    lines.push(`${mark} ${String(s.i + 1).padStart(2, ' ')}. ${s.type.padEnd(14)} ${s.detail}  (${s.ms}ms)`);
+  }
+  return lines.join('\n');
+}
+
+// Parse a flow file (JSON array of {type, ...} or simplified line format).
+function parseFlowFile(filePath) {
+  const text = fs.readFileSync(filePath, 'utf-8').trim();
+  if (text.startsWith('[') || text.startsWith('{')) {
+    const data = JSON.parse(text);
+    const arr = Array.isArray(data) ? data : [data];
+    return arr.map(normalizeAction);
+  }
+  const out = [];
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const parts = line.split(/\s+/);
+    const type = parts[0];
+    const rest = line.slice(type.length).trim();
+    if (type === 'fill' || type === 'type' || type === 'assert-text') {
+      const m = rest.match(/^(\S+)\s+(.+)$/);
+      if (m) out.push({ type, selector: m[1], value: m[2].replace(/^["']|["']$/g, '') });
+    } else if (type === 'wait' || type === 'wait-ms') {
+      out.push({ type: 'wait', ms: parseInt(rest, 10) || 500 });
+    } else if (type === 'press') {
+      out.push({ type, key: rest });
+    } else if (type === 'goto') {
+      out.push({ type, url: rest });
+    } else if (type === 'screenshot') {
+      out.push({ type, file: rest });
+    } else if (type === 'assert-url') {
+      out.push({ type, value: rest });
+    } else {
+      out.push({ type, selector: rest });
+    }
+  }
+  return out;
+}
+
+function normalizeAction(a) {
+  if (a.type) return a;
+  const keys = ['click', 'fill', 'type', 'press', 'wait', 'wait-for', 'goto', 'screenshot', 'assert-exists', 'assert-text', 'assert-url'];
+  for (const k of keys) {
+    if (k in a) {
+      const rest = { ...a }; delete rest[k];
+      if (k === 'fill' || k === 'type') return { type: k, selector: a[k], value: a.value || rest.value || '' };
+      if (k === 'press') return { type: 'press', key: a[k] };
+      if (k === 'wait') return { type: 'wait', ms: parseInt(a[k], 10) || 500 };
+      if (k === 'goto') return { type: 'goto', url: a[k] };
+      if (k === 'screenshot') return { type: 'screenshot', file: a[k], full: !!rest.full };
+      if (k === 'assert-text') return { type: 'assert-text', selector: a[k], value: a.value || rest.value || '' };
+      if (k === 'assert-url') return { type: 'assert-url', value: a[k] };
+      return { type: k, selector: a[k], ...rest };
+    }
+  }
+  throw new Error(`flow: unrecognized action keys in ${JSON.stringify(a)}`);
+}
+
 module.exports = {
   extractLayout,
   flatten,
@@ -1647,4 +1794,7 @@ module.exports = {
   formatAriaTree,
   captureViewport,
   formatSweep,
+  runActions,
+  formatActionLog,
+  parseFlowFile,
 };
