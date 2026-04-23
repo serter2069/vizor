@@ -128,6 +128,8 @@ function parseArgs(args) {
       }
     } else if (a === '--wait-for' && args[i + 1]) {
       opts.actions.push({ type: 'wait-for', selector: args[++i] });
+    } else if (a === '--wait-gone' && args[i + 1]) {
+      opts.actions.push({ type: 'wait-gone', selector: args[++i] });
     } else if (a === '--wait-ms' && args[i + 1]) {
       opts.actions.push({ type: 'wait', ms: parseInt(args[++i], 10) });
     } else if (a === '--click' && args[i + 1]) {
@@ -270,6 +272,7 @@ Interactive actions (applied in order, before analysis mode):
   --press KEY               press keyboard key (Enter, Tab, ArrowDown, …)
   --goto URL                navigate mid-flow
   --wait-for SEL            wait until SEL visible (10s max)
+  --wait-gone SEL           wait until SEL is hidden/removed (10s max)
   --wait-ms N               sleep N milliseconds
   --assert-exists SEL       fail run if SEL missing
   --assert-text SEL TEXT    fail if element text lacks TEXT
@@ -382,7 +385,7 @@ async function saveVideoFile(page, opts) {
     try {
       execSync('which ffmpeg 2>/dev/null || where ffmpeg 2>/dev/null', { stdio: 'ignore' });
       execSync(
-        `ffmpeg -y -i "${rawWebm}" -r ${opts.videoFps} -c:v libx264 -crf ${opts.videoQuality} -preset fast "${outFile}" 2>/dev/null`,
+        `ffmpeg -y -i "${rawWebm}" -vf "mpdecimate" -vsync vfr -c:v libx264 -crf ${opts.videoQuality} -preset fast "${outFile}" 2>/dev/null`,
         { stdio: 'pipe' }
       );
       fs.unlinkSync(rawWebm);

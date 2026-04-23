@@ -809,7 +809,7 @@ function formatProblems(problems, url, viewport) {
   lines.push(`PROBLEMS: ${url} (viewport: ${viewport.width}×${viewport.height})`);
   lines.push('─'.repeat(40));
 
-  const types = ['overflow', 'hidden-clip', 'tiny-tap', 'tiny-text', 'low-contrast', 'offscreen', 'no-label', 'clickable-no-role', 'ghost', 'spacing', 'z-conflict'];
+  const types = ['overflow', 'hidden-clip', 'tiny-tap', 'tiny-text', 'low-contrast', 'offscreen', 'no-label', 'clickable-no-role', 'ghost', 'spacing', 'z-conflict', 'interactive-z-conflict', 'dropdown-clipped'];
   const byType = {};
   for (const t of types) byType[t] = [];
   for (const p of problems) {
@@ -835,6 +835,8 @@ function formatProblems(problems, url, viewport) {
         else if (t === 'ghost') desc = ` — invisible element covering content`;
         else if (t === 'spacing') desc = p.detail && p.detail.includes('(') ? ` — ${p.detail.slice(p.detail.indexOf('(') + 1, p.detail.lastIndexOf(')'))}` : ` — siblings have different margins`;
         else if (t === 'z-conflict') desc = ` — may overlap`;
+        else if (t === 'interactive-z-conflict') desc = ` — dropdown/menu opens BEHIND another element`;
+        else if (t === 'dropdown-clipped') desc = p.detail ? ` — ${p.detail}` : ` — content cut off by overflow:hidden parent`;
         else if (t === 'low-contrast') {
           const m = p.detail && p.detail.match(/\(([^)]+)\)/);
           desc = m ? ` — ${m[1]}` : ` — WCAG AA fails`;
@@ -1979,6 +1981,10 @@ async function runActions(context, page, actions, opts = {}) {
           await pg.locator(step.selector).first().waitFor({ state: step.state || 'visible', timeout: maxWait });
           rec.detail = `${step.selector} (${step.state || 'visible'})`;
           break;
+        case 'wait-gone':
+          await pg.locator(step.selector).first().waitFor({ state: 'hidden', timeout: maxWait });
+          rec.detail = `${step.selector} (gone)`;
+          break;
         case 'screenshot': {
           const file = step.file;
           const savedFile = await takeScreenshot(pg, file, opts, !!step.full);
@@ -2212,6 +2218,8 @@ function parseFlowFile(filePath) {
     if (type === 'fill' || type === 'type' || type === 'assert-text') {
       const m = rest.match(/^(\S+)\s+(.+)$/);
       if (m) out.push({ type, selector: m[1], value: m[2].replace(/^["']|["']$/g, '') });
+    } else if (type === 'wait-gone') {
+      out.push({ type, selector: rest });
     } else if (type === 'wait' || type === 'wait-ms') {
       out.push({ type: 'wait', ms: parseInt(rest, 10) || 500 });
     } else if (type === 'press') {
