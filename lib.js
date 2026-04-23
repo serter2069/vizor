@@ -492,6 +492,76 @@ function extractLayout(maxDepth) {
       warnings.push(`ghost (${w}x${h} invisible)`);
     }
 
+    // Double-border / naked-input / no-focus-indicator detection
+    // RN Web renders <TextInput> as <input>; native <input> has browser outline on focus,
+    // plus RN adds its own border → double frame. Detect once per input-like element.
+    const isContentEditable = el.getAttribute && el.getAttribute('contenteditable') === 'true';
+    const isInputLike = tag === 'input' || tag === 'textarea' || tag === 'select' || isContentEditable;
+    if (isInputLike && w > 0 && h > 0) {
+      const btw = parseFloat(style.borderTopWidth) || 0;
+      const brw = parseFloat(style.borderRightWidth) || 0;
+      const bbw = parseFloat(style.borderBottomWidth) || 0;
+      const blw = parseFloat(style.borderLeftWidth) || 0;
+      const bStyle = style.borderStyle || '';
+      const maxBw = Math.max(btw, brw, bbw, blw);
+      const hasRNBorder = maxBw > 0 && bStyle !== 'none';
+
+      const outlineStyle = style.outlineStyle || '';
+      const outlineWidth = parseFloat(style.outlineWidth) || 0;
+      const hasNativeOutline = outlineStyle !== 'none' && outlineWidth > 0;
+      const shadowBaseline = style.boxShadow || 'none';
+
+      // Baseline (unfocused) double-border
+      if (hasRNBorder && hasNativeOutline) {
+        warnings.push(`double-border (${maxBw}px RN + ${outlineWidth}px outline)`);
+      }
+
+      // Naked input: <input>/<textarea>/<select> with NO RN border — default native input
+      // (hard to see on most backgrounds). Skip contenteditable (usually styled div).
+      if (!hasRNBorder && (tag === 'input' || tag === 'textarea' || tag === 'select')) {
+        const typeAttr = (el.getAttribute && el.getAttribute('type')) || '';
+        // Skip input types that don't render a visible frame
+        const skipTypes = new Set(['hidden', 'checkbox', 'radio', 'submit', 'button', 'reset', 'image', 'range', 'color', 'file']);
+        if (!skipTypes.has(typeAttr)) {
+          warnings.push('naked-input (no border — default native frame)');
+        }
+      }
+
+      // Focus-state check: only probe if element is NOT currently focused, and is focusable.
+      // Wrapped in try/catch — focus can throw on readonly/disabled/detached elements.
+      const alreadyFocused = document.activeElement === el;
+      const isDisabled = el.disabled === true;
+      if (!alreadyFocused && !isDisabled) {
+        try {
+          const prevActive = document.activeElement;
+          el.focus({ preventScroll: true });
+          if (document.activeElement === el) {
+            const csFocused = window.getComputedStyle(el);
+            const outlineStyleF = csFocused.outlineStyle || '';
+            const outlineWidthF = parseFloat(csFocused.outlineWidth) || 0;
+            const shadowFocused = csFocused.boxShadow || 'none';
+            const hasNativeOutlineOnFocus = outlineStyleF !== 'none' && outlineWidthF > 0;
+
+            if (hasRNBorder && hasNativeOutlineOnFocus) {
+              warnings.push(`double-border-on-focus (${maxBw}px RN + ${outlineWidthF}px outline on focus)`);
+            }
+
+            // Dev killed native outline → must provide another focus indicator
+            const outlineRemoved = !hasNativeOutlineOnFocus;
+            const shadowUnchanged = shadowFocused === shadowBaseline;
+            if (outlineRemoved && shadowUnchanged) {
+              warnings.push('no-focus-indicator (outline:none and boxShadow unchanged on focus)');
+            }
+          }
+          // Restore previous focus
+          el.blur();
+          if (prevActive && prevActive !== el && typeof prevActive.focus === 'function') {
+            try { prevActive.focus({ preventScroll: true }); } catch (_) {}
+          }
+        } catch (_) { /* focus failed — skip */ }
+      }
+    }
+
     // WCAG contrast ratio (text only; ignore empty/whitespace nodes)
     if (fontSize && textContent && textContent.length >= 2 && opacity > 0.3) {
       const fg = resolveColor(style.color);
@@ -809,7 +879,7 @@ function formatProblems(problems, url, viewport) {
   lines.push(`PROBLEMS: ${url} (viewport: ${viewport.width}×${viewport.height})`);
   lines.push('─'.repeat(40));
 
-  const types = ['overflow', 'hidden-clip', 'tiny-tap', 'tiny-text', 'low-contrast', 'offscreen', 'no-label', 'clickable-no-role', 'ghost', 'spacing', 'z-conflict', 'interactive-z-conflict', 'dropdown-clipped'];
+  const types = ['overflow', 'hidden-clip', 'tiny-tap', 'tiny-text', 'low-contrast', 'offscreen', 'no-label', 'clickable-no-role', 'ghost', 'spacing', 'z-conflict', 'interactive-z-conflict', 'dropdown-clipped', 'double-border-on-focus', 'double-border', 'naked-input', 'no-focus-indicator'];
   const byType = {};
   for (const t of types) byType[t] = [];
   for (const p of problems) {
@@ -841,6 +911,16 @@ function formatProblems(problems, url, viewport) {
           const m = p.detail && p.detail.match(/\(([^)]+)\)/);
           desc = m ? ` — ${m[1]}` : ` — WCAG AA fails`;
         }
+        else if (t === 'double-border') {
+          const m = p.detail && p.detail.match(/\(([^)]+)\)/);
+          desc = m ? ` — ${m[1]} (double frame baseline)` : ` — RN border + native outline (will show double frame on focus)`;
+        }
+        else if (t === 'double-border-on-focus') {
+          const m = p.detail && p.detail.match(/\(([^)]+)\)/);
+          desc = m ? ` — ${m[1]}` : ` — RN border + native outline on focus (double frame)`;
+        }
+        else if (t === 'naked-input') desc = ` — default native frame (hard to see, add styled border)`;
+        else if (t === 'no-focus-indicator') desc = ` — outline:none with no boxShadow change on focus (a11y fail)`;
         const stable = p.stableSelector && p.stableSelector !== p.selector
           ? `  ⟶  ${p.stableSelector}`
           : '';

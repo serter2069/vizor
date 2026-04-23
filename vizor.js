@@ -698,4 +698,206 @@ async function run() {
   }
 }
 
-run();
+// ─── mosaic subcommand ────────────────────────────────────────────────────────
+
+async function runMosaic(argv) {
+  const http = require('http');
+  const https = require('https');
+
+  let sharp;
+  try { sharp = require(path.join(vizorHome, 'node_modules/sharp')); }
+  catch { console.error('[vizor mosaic] sharp not found. Run: cd ~/.vizor && npm install sharp'); process.exit(1); }
+
+  const VIEWPORTS = {
+    mobile:  { w: 430,  h: 932,  cols: 3, thumbW: 390,  label: 'mobile'  },
+    desktop: { w: 1440, h: 900,  cols: 2, thumbW: 700,  label: 'desktop' },
+  };
+  const LABEL_H = 26, GAP = 6, BG = { r: 15, g: 23, b: 42 };
+
+  const opts = {
+    urls: [], metro: null, appUrl: null, viewport: 'mobile',
+    out: null, quality: 65, wait: 2500, concurrency: 4,
+    skip: [], group: null, urlsFile: null,
+  };
+
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if      (a === '--metro'    && argv[i+1]) opts.metro    = argv[++i];
+    else if (a === '--app-url'  && argv[i+1]) opts.appUrl   = argv[++i];
+    else if (a === '--desktop')               opts.viewport  = 'desktop';
+    else if (a === '--mobile')                opts.viewport  = 'mobile';
+    else if (a === '--out'      && argv[i+1]) opts.out       = argv[++i];
+    else if (a === '--quality'  && argv[i+1]) opts.quality   = parseInt(argv[++i]);
+    else if (a === '--wait'     && argv[i+1]) opts.wait      = parseInt(argv[++i]);
+    else if (a === '--concurrency' && argv[i+1]) opts.concurrency = parseInt(argv[++i]);
+    else if (a === '--group'    && argv[i+1]) opts.group     = argv[++i];
+    else if (a === '--skip'     && argv[i+1]) opts.skip.push(argv[++i]);
+    else if ((a === '--urls-file' || a === '--file') && argv[i+1]) opts.urlsFile = argv[++i];
+    else if (a === '--help' || a === '-h') {
+      console.log(`Usage: vizor mosaic [URLs...] [options]
+
+Sources (can combine):
+  URLs...                    Direct URLs
+  --urls-file FILE           Text file with one URL per line
+  --metro URL                Fetch from metro-map API (e.g. http://localhost:8090)
+  --app-url URL              Base URL for metro-map routes (e.g. http://localhost:8081)
+  --group GROUP              Filter metro screens by group
+
+Viewport:
+  --mobile                   430x932, 3 columns (default)
+  --desktop                  1440x900, 2 columns
+
+Output:
+  --out FILE                 Output file (default: mosaic-YYYY-MM-DD-<viewport>.webp)
+  --quality N                WebP quality 1-100 (default: 65)
+  --wait N                   Wait ms per page (default: 2500)
+  --concurrency N            Parallel screenshots (default: 4)
+  --skip PATTERN             Skip URLs containing PATTERN`);
+      process.exit(0);
+    }
+    else if (!a.startsWith('--')) opts.urls.push(a);
+  }
+
+  if (!opts.out) {
+    const d = new Date().toISOString().slice(0, 10);
+    opts.out = `mosaic-${d}-${opts.viewport}.webp`;
+  }
+
+  function fetchJson(url) {
+    return new Promise((res, rej) => {
+      (url.startsWith('https') ? https : http).get(url, r => {
+        let d = ''; r.on('data', c => d += c);
+        r.on('end', () => { try { res(JSON.parse(d)); } catch(e) { rej(e); } });
+      }).on('error', rej);
+    });
+  }
+
+  // Collect entries
+  let entries = opts.urls.map(u => ({ url: u, label: u }));
+
+  if (opts.urlsFile) {
+    const lines = fsSync.readFileSync(opts.urlsFile, 'utf8')
+      .split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+    entries.push(...lines.map(u => ({ url: u, label: u })));
+  }
+
+  if (opts.metro) {
+    if (!opts.appUrl) { console.error('[vizor mosaic] --app-url required with --metro'); process.exit(1); }
+    const data = await fetchJson(opts.metro.replace(/\/$/, '') + '/data');
+    const stations = data.stations || {};
+    const list = Array.isArray(stations) ? stations : Object.values(stations);
+    for (const s of list) {
+      const route = s.route || s.url || '';
+      if (!route || route.includes('[') || route.includes(':')) continue;
+      if (opts.group && s.group !== opts.group) continue;
+      entries.push({ url: opts.appUrl.replace(/\/$/, '') + route, label: route });
+    }
+  }
+
+  entries = entries.filter(e => !opts.skip.some(p => e.url.includes(p)));
+
+  if (entries.length === 0) {
+    console.error('[vizor mosaic] No URLs. Pass URLs, --urls-file, or --metro.'); process.exit(1);
+  }
+
+  const vp = VIEWPORTS[opts.viewport];
+  const tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'vizor-mosaic-'));
+  console.log(`[vizor mosaic] ${entries.length} screens | ${vp.label} ${vp.w}×${vp.h} | concurrency ${opts.concurrency}`);
+
+  function shortLabel(l) {
+    const p = l.replace(/^https?:\/\/[^/]+/, '').split('/').filter(Boolean);
+    const s = p.length ? '/' + p.slice(-2).join('/') : l;
+    return s.length > 55 ? '…' + s.slice(-54) : s;
+  }
+
+  // Screenshot via child process
+  async function doScreenshot(url, idx) {
+    const outFile = path.join(tmpDir, `screen-${idx}.webp`);
+    const { spawnSync } = require('child_process');
+    const res = spawnSync(process.argv[1], [
+      url,
+      '--viewport', `${vp.w}x${vp.h}`,
+      '--wait', String(opts.wait),
+      '--full-screenshot', outFile,
+      '--screenshot-quality', '70',
+      '--screenshot-width', String(vp.thumbW),
+    ], { stdio: 'pipe', timeout: 35000 });
+    return (res.status === 0 && fsSync.existsSync(outFile)) ? outFile : null;
+  }
+
+  // Parallel pool
+  const results = new Array(entries.length).fill(null);
+  let idx = 0;
+  async function worker() {
+    while (idx < entries.length) {
+      const i = idx++;
+      const e = entries[i];
+      process.stdout.write(`  [${i+1}/${entries.length}] ${shortLabel(e.label)} ... `);
+      const file = await doScreenshot(e.url, i);
+      if (file) { console.log(`${Math.round(fsSync.statSync(file).size/1024)}KB`); }
+      else       { console.log('FAILED'); }
+      results[i] = { ...e, file };
+    }
+  }
+  await Promise.all(Array.from({ length: opts.concurrency }, worker));
+
+  const ok = results.filter(r => r.file);
+  if (ok.length === 0) {
+    console.error('[vizor mosaic] All screenshots failed.');
+    fsSync.rmSync(tmpDir, { recursive: true, force: true }); process.exit(1);
+  }
+
+  console.log(`\n[vizor mosaic] Stitching ${ok.length} screens (${vp.cols} cols)...`);
+
+  // Label + resize each image
+  async function labeledImg(r) {
+    const safe = shortLabel(r.label)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const svg = Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${vp.thumbW}" height="${LABEL_H}">` +
+      `<rect width="${vp.thumbW}" height="${LABEL_H}" fill="#0f172a"/>` +
+      `<text x="8" y="18" font-family="monospace" font-size="11" fill="#94a3b8">${safe}</text></svg>`
+    );
+    return sharp(r.file)
+      .resize(vp.thumbW, null, { withoutEnlargement: false })
+      .extend({ top: LABEL_H, background: BG })
+      .composite([{ input: svg, top: 0, left: 0 }])
+      .toBuffer();
+  }
+  const bufs = await Promise.all(ok.map(r => labeledImg(r)));
+
+  // Build grid
+  const metas = await Promise.all(bufs.map(b => sharp(b).metadata()));
+  const heights = metas.map(m => m.height || 400);
+  const cols = vp.cols, rows = Math.ceil(bufs.length / cols);
+  const rowH = [];
+  for (let r = 0; r < rows; r++) {
+    let mx = 0;
+    for (let c = 0; c < cols; c++) { const i = r*cols+c; if (i<bufs.length) mx = Math.max(mx, heights[i]); }
+    rowH.push(mx);
+  }
+  const totalW = cols * vp.thumbW + (cols-1)*GAP;
+  const totalH = rowH.reduce((a,b)=>a+b,0) + (rows-1)*GAP;
+
+  const composites = bufs.map((buf, i) => {
+    const row = Math.floor(i/cols), col = i%cols;
+    return { input: buf, top: rowH.slice(0,row).reduce((a,b)=>a+b,0)+row*GAP, left: col*(vp.thumbW+GAP) };
+  });
+
+  await sharp({ create: { width: totalW, height: totalH, channels: 3, background: BG } })
+    .composite(composites)
+    .webp({ quality: opts.quality })
+    .toFile(opts.out);
+
+  const sizeMB = (fsSync.statSync(opts.out).size/1024/1024).toFixed(2);
+  console.log(`[vizor mosaic] Done: ${opts.out} (${sizeMB} MB) | ${ok.length}/${entries.length} screens | ${cols}×${rows} grid`);
+  fsSync.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+// ─── entry point ─────────────────────────────────────────────────────────────
+
+if (process.argv[2] === 'mosaic') {
+  runMosaic(process.argv.slice(3));
+} else {
+  run();
+}

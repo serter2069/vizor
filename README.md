@@ -220,6 +220,57 @@ vizor https://app.com --screenshot-diff /tmp/baseline.png 2.0
 
 ---
 
+## Mosaic — all screens in one image
+
+Screenshot every screen of an app or site into a single labeled grid — ready to send to an AI for visual review.
+
+```bash
+# From metro-map (auto-discovers all app screens)
+vizor mosaic --metro http://localhost:8090 --app-url http://localhost:8081 --mobile
+vizor mosaic --metro http://localhost:8090 --app-url http://localhost:8081 --desktop --group client
+
+# From a text file (one URL per line, # comments allowed)
+vizor mosaic --urls-file screens.txt --mobile --out review.webp
+
+# Direct URLs
+vizor mosaic https://stripe.com https://stripe.com/pricing https://stripe.com/docs --desktop
+```
+
+**screens.txt format:**
+```
+# My app screens
+http://localhost:8081
+http://localhost:8081/auth/email
+http://localhost:8081/specialists
+http://localhost:8081/requests
+```
+
+| Flag | Default | What it does |
+|------|---------|-------------|
+| `URLs...` | — | Direct URLs to screenshot |
+| `--urls-file FILE` | — | Text file, one URL per line (`#` comments ok) |
+| `--metro URL` | — | Fetch screen list from metro-map API |
+| `--app-url URL` | — | Base URL for metro-map routes |
+| `--group GROUP` | — | Filter metro screens by group |
+| `--mobile` | ✅ | 430×932, 3 columns |
+| `--desktop` | — | 1440×900, 2 columns |
+| `--out FILE` | `mosaic-DATE-viewport.webp` | Output file |
+| `--quality N` | `65` | WebP quality 1–100 |
+| `--wait N` | `2500` | Wait ms per page |
+| `--concurrency N` | `4` | Parallel screenshots |
+| `--skip PATTERN` | — | Skip URLs containing pattern |
+
+**Real-world sizes:**
+
+| Screens | Viewport | Output |
+|---------|----------|--------|
+| 6 screens | mobile 430px | **110 KB** |
+| 7 screens | desktop 1440px | **74 KB** |
+
+Each screenshot is full-page (scrolled), resized to column width, labeled with the route path. Requires `sharp` (auto-installed in `~/.vizor`).
+
+---
+
 ## Video Recording
 
 Record any session — headless, automated, CI-friendly. Uses Playwright's built-in recording, re-encoded via ffmpeg with idle-frame removal.
