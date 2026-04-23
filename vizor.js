@@ -65,6 +65,7 @@ const {
   formatAriaTree,
   captureViewport,
   formatSweep,
+  takeScreenshot,
   runActions,
   formatActionLog,
   parseFlowFile,
@@ -93,6 +94,10 @@ function parseArgs(args) {
     actions: [],
     actionsLog: false,
     net: { capture: false, stubs: [], blocks: [] },
+    screenshotQuality: null,
+    screenshotWidth: null,
+    captureConsole: null,
+    vizorHome: path.join(os.homedir(), '.vizor'),
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -131,6 +136,39 @@ function parseArgs(args) {
       opts.actions.push({ type: 'goto', url: args[++i] });
     } else if (a === '--screenshot' && args[i + 1]) {
       opts.actions.push({ type: 'screenshot', file: args[++i] });
+    } else if (a === '--screenshot-quality' && args[i + 1]) {
+      opts.screenshotQuality = parseInt(args[++i], 10);
+    } else if (a === '--screenshot-width' && args[i + 1]) {
+      opts.screenshotWidth = parseInt(args[++i], 10);
+    } else if ((a === '--screenshot-webp' || a === '--ss') && args[i + 1]) {
+      // shortcut: --ss FILE → WebP at quality 55, 1200px max
+      opts.actions.push({ type: 'screenshot', file: args[++i].replace(/(\.\w+)?$/, '.webp') });
+      if (!opts.screenshotQuality) opts.screenshotQuality = 55;
+      if (!opts.screenshotWidth) opts.screenshotWidth = 1200;
+    } else if (a === '--get' && args[i + 1]) {
+      opts.actions.push({ type: 'get', selector: args[++i] });
+    } else if (a === '--get-attr' && args[i + 2]) {
+      opts.actions.push({ type: 'get-attr', selector: args[++i], name: args[++i] });
+    } else if (a === '--assert-visible' && args[i + 1]) {
+      opts.actions.push({ type: 'assert-visible', selector: args[++i] });
+    } else if (a === '--assert-enabled' && args[i + 1]) {
+      opts.actions.push({ type: 'assert-enabled', selector: args[++i] });
+    } else if (a === '--assert-checked' && args[i + 1]) {
+      opts.actions.push({ type: 'assert-checked', selector: args[++i] });
+    } else if (a === '--scroll' && args[i + 1]) {
+      const dir = args[++i];
+      const px = args[i + 1] && /^\d+$/.test(args[i + 1]) ? parseInt(args[++i], 10) : 0;
+      opts.actions.push({ type: 'scroll', direction: dir, px });
+    } else if (a === '--select' && args[i + 2]) {
+      opts.actions.push({ type: 'select', selector: args[++i], value: args[++i] });
+    } else if (a === '--console-errors') {
+      opts.captureConsole = 'errors';
+    } else if (a === '--console-logs') {
+      opts.captureConsole = 'all';
+    } else if (a === '--cookies-load' && args[i + 1]) {
+      opts.actions.unshift({ type: 'cookies-load', file: args[++i] });
+    } else if (a === '--cookies-save' && args[i + 1]) {
+      opts.actions.push({ type: 'cookies-save', file: args[++i] });
     } else if (a === '--assert-exists' && args[i + 1]) {
       opts.actions.push({ type: 'assert-exists', selector: args[++i] });
     } else if (a === '--assert-text' && args[i + 2]) {
@@ -204,13 +242,39 @@ Interactive actions (applied in order, before analysis mode):
   --assert-exists SEL       fail run if SEL missing
   --assert-text SEL TEXT    fail if element text lacks TEXT
   --assert-url TEXT         fail if current URL lacks TEXT
-  --screenshot FILE         save PNG to FILE
   --flow FILE               load actions from JSON array or line-based file
   --actions-log             always print the action log (default: only on failure)
   --new-tab URL             open URL in new tab (switches active tab)
   --new-tab-blank           open blank tab
   --switch-tab N            switch active tab by index (0 = first)
   --close-tab               close active tab, switch to previous
+
+Screenshot:
+  --screenshot FILE         save screenshot (PNG/JPEG/WebP by extension)
+  --screenshot-quality N    JPEG/WebP quality 1-100 (default: 70 JPEG, 55 WebP)
+  --screenshot-width N      resize to max N px wide (requires sharp, auto-installed)
+  --ss FILE                 shortcut: WebP, quality 55, max 1200px
+
+State assertions:
+  --assert-visible SEL      fail if element not visible
+  --assert-enabled SEL      fail if element not enabled
+  --assert-checked SEL      fail if checkbox not checked
+
+Queries (output in action log):
+  --get SEL                 print text content of element
+  --get-attr SEL NAME       print attribute value
+
+Interaction:
+  --scroll up|down|top|bottom|SEL [px]  scroll page or element into view
+  --select SEL VALUE        select dropdown option
+
+Console:
+  --console-errors          capture JS errors + uncaught exceptions
+  --console-logs            capture all console output
+
+Session:
+  --cookies-load FILE       load cookies from JSON before navigation
+  --cookies-save FILE       save cookies to JSON after flow
 
 Network:
   --net-capture             capture all XHR/fetch, print summary after analysis
@@ -400,9 +464,21 @@ async function run() {
         await page.goto(opts.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         try { await page.waitForLoadState('networkidle', { timeout: 4000 }); } catch {}
         await page.waitForTimeout(opts.wait);
-        const result = await runActions(context, page, opts.actions);
+        const result = await runActions(context, page, opts.actions, {
+          captureConsole: opts.captureConsole,
+          screenshotQuality: opts.screenshotQuality,
+          screenshotWidth: opts.screenshotWidth,
+          vizorHome: opts.vizorHome,
+        });
         if (!result.ok || opts.actionsLog) {
           console.error(formatActionLog(result));
+        }
+        if (result.consoleLogs && result.consoleLogs.length > 0) {
+          const lines = ['\nCONSOLE:'];
+          for (const l of result.consoleLogs) {
+            lines.push(`  [${l.type}] ${l.text}`);
+          }
+          console.error(lines.join('\n'));
         }
         if (!result.ok) {
           process.exit(2);

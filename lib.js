@@ -1881,14 +1881,68 @@ function formatSweep(results, url) {
 }
 
 
+// Helper: take a screenshot with optional JPEG/WebP compression and resize via sharp.
+async function takeScreenshot(page, file, opts, fullPage) {
+  const path = require('path');
+  const fs = require('fs');
+  const os = require('os');
+  const { execSync } = require('child_process');
+  const ext = path.extname(file).toLowerCase();
+  const quality = opts.screenshotQuality;
+  const maxWidth = opts.screenshotWidth;
+
+  if (ext === '.webp' || maxWidth) {
+    const vizorHome = opts.vizorHome || path.join(os.homedir(), '.vizor');
+    const sharpPath = path.join(vizorHome, 'node_modules/sharp');
+    let sharp;
+    try { sharp = require(sharpPath); } catch (_) {
+      try {
+        process.stderr.write('[vizor] Installing sharp for optimized screenshots (~25MB, one-time)...\n');
+        execSync('npm install sharp', { cwd: vizorHome, stdio: 'inherit' });
+        sharp = require(sharpPath);
+      } catch (err) {
+        // fallback: jpeg
+        process.stderr.write('[vizor] sharp install failed, falling back to JPEG\n');
+        const fallback = file.replace(/\.\w+$/, '.jpg');
+        await page.screenshot({ path: fallback, type: 'jpeg', quality: quality || 70, fullPage });
+        return fallback;
+      }
+    }
+    const buf = await page.screenshot({ fullPage });
+    let img = sharp(buf);
+    if (maxWidth) img = img.resize({ width: maxWidth, withoutEnlargement: true });
+    img = ext === '.webp' ? img.webp({ quality: quality || 55 }) :
+          (ext === '.jpg' || ext === '.jpeg') ? img.jpeg({ quality: quality || 70 }) : img.png();
+    await img.toFile(file);
+    return file;
+  } else if (ext === '.jpg' || ext === '.jpeg') {
+    await page.screenshot({ path: file, type: 'jpeg', quality: quality || 70, fullPage });
+    return file;
+  } else {
+    await page.screenshot({ path: file, fullPage });
+    return file;
+  }
+}
+
 // Interactive action runner — applies a sequence of {type, ...args} steps against a Playwright page.
-// Returns { ok, steps:[{i, type, status, detail, ms}], failed:<step|null> }.
+// Returns { ok, steps:[{i, type, status, detail, ms}], failed:<step|null>, consoleLogs:[] }.
 async function runActions(context, page, actions, opts = {}) {
   const log = [];
   const maxWait = opts.maxWait || 10000;
   let failed = null;
   const pages = [page];
   let pg = page;
+
+  const consoleLogs = [];
+  if (opts.captureConsole) {
+    page.on('console', msg => {
+      if (opts.captureConsole === 'errors' && msg.type() !== 'error') return;
+      consoleLogs.push({ type: msg.type(), text: msg.text() });
+    });
+    page.on('pageerror', err => {
+      consoleLogs.push({ type: 'pageerror', text: err.message });
+    });
+  }
 
   for (let i = 0; i < actions.length; i++) {
     const step = actions[i];
@@ -1927,8 +1981,14 @@ async function runActions(context, page, actions, opts = {}) {
           break;
         case 'screenshot': {
           const file = step.file;
-          await pg.screenshot({ path: file, fullPage: !!step.full });
-          rec.detail = file;
+          const savedFile = await takeScreenshot(pg, file, opts, !!step.full);
+          const fs = require('fs');
+          try {
+            const stat = fs.statSync(savedFile);
+            rec.detail = `${savedFile} (${formatBytes(stat.size)})`;
+          } catch (_) {
+            rec.detail = savedFile;
+          }
           break;
         }
         case 'assert-exists': {
@@ -1979,6 +2039,72 @@ async function runActions(context, page, actions, opts = {}) {
           rec.detail = `closed tab ${closedIdx}`;
           break;
         }
+        case 'get': {
+          const loc = pg.locator(step.selector).first();
+          const text = await loc.isVisible({ timeout: 2000 }).catch(() => false)
+            ? (await loc.textContent({ timeout: maxWait }) || '').trim()
+            : '';
+          rec.detail = `${step.selector} → "${text}"`;
+          break;
+        }
+        case 'get-attr': {
+          const val = await pg.locator(step.selector).first().getAttribute(step.name, { timeout: maxWait });
+          rec.detail = `${step.selector}[${step.name}] → "${val ?? '(null)'}"`;
+          break;
+        }
+        case 'assert-visible': {
+          const visible = await pg.locator(step.selector).first().isVisible({ timeout: maxWait });
+          if (!visible) throw new Error(`not visible: ${step.selector}`);
+          rec.detail = step.selector;
+          break;
+        }
+        case 'assert-enabled': {
+          const enabled = await pg.locator(step.selector).first().isEnabled({ timeout: maxWait });
+          if (!enabled) throw new Error(`not enabled: ${step.selector}`);
+          rec.detail = step.selector;
+          break;
+        }
+        case 'assert-checked': {
+          const checked = await pg.locator(step.selector).first().isChecked({ timeout: maxWait });
+          if (!checked) throw new Error(`not checked: ${step.selector}`);
+          rec.detail = step.selector;
+          break;
+        }
+        case 'scroll': {
+          const { direction, px } = step;
+          if (direction === 'up' || direction === 'down') {
+            const dy = direction === 'down' ? (px || 300) : -(px || 300);
+            await pg.evaluate((dy) => window.scrollBy(0, dy), dy);
+          } else if (direction === 'top') {
+            await pg.evaluate(() => window.scrollTo(0, 0));
+          } else if (direction === 'bottom') {
+            await pg.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+          } else {
+            // direction is a selector
+            await pg.locator(direction).first().scrollIntoViewIfNeeded({ timeout: maxWait });
+          }
+          rec.detail = `${direction}${px ? ' ' + px + 'px' : ''}`;
+          break;
+        }
+        case 'select': {
+          await pg.locator(step.selector).first().selectOption(step.value, { timeout: maxWait });
+          rec.detail = `${step.selector} = "${step.value}"`;
+          break;
+        }
+        case 'cookies-save': {
+          if (!context) throw new Error('cookies-save requires browser context');
+          const cookies = await context.cookies();
+          require('fs').writeFileSync(step.file, JSON.stringify(cookies, null, 2));
+          rec.detail = `${step.file} (${cookies.length} cookies)`;
+          break;
+        }
+        case 'cookies-load': {
+          if (!context) throw new Error('cookies-load requires browser context');
+          const cookies = JSON.parse(require('fs').readFileSync(step.file, 'utf-8'));
+          await context.addCookies(cookies);
+          rec.detail = `${step.file} (${cookies.length} cookies)`;
+          break;
+        }
         default:
           throw new Error(`unknown action: ${step.type}`);
       }
@@ -1991,7 +2117,7 @@ async function runActions(context, page, actions, opts = {}) {
     log.push(rec);
     if (failed) break;
   }
-  return { ok: !failed, steps: log, failed, page: pg };
+  return { ok: !failed, steps: log, failed, page: pg, consoleLogs };
 }
 
 function formatActionLog(result) {
@@ -2039,6 +2165,21 @@ function parseFlowFile(filePath) {
       out.push({ type, index: parseInt(rest, 10) || 0 });
     } else if (type === 'close-tab') {
       out.push({ type });
+    } else if (type === 'get') {
+      out.push({ type, selector: rest });
+    } else if (type === 'get-attr') {
+      const m = rest.match(/^(\S+)\s+(\S+)$/);
+      if (m) out.push({ type, selector: m[1], name: m[2] });
+    } else if (type === 'assert-visible' || type === 'assert-enabled' || type === 'assert-checked') {
+      out.push({ type, selector: rest });
+    } else if (type === 'scroll') {
+      const sParts = rest.split(/\s+/);
+      out.push({ type, direction: sParts[0], px: parseInt(sParts[1], 10) || 0 });
+    } else if (type === 'select') {
+      const m = rest.match(/^(\S+)\s+(.+)$/);
+      if (m) out.push({ type, selector: m[1], value: m[2].replace(/^["']|["']$/g, '') });
+    } else if (type === 'cookies-save' || type === 'cookies-load') {
+      out.push({ type, file: rest });
     } else {
       out.push({ type, selector: rest });
     }
@@ -2049,7 +2190,9 @@ function parseFlowFile(filePath) {
 function normalizeAction(a) {
   if (a.type) return a;
   const keys = ['click', 'fill', 'type', 'press', 'wait', 'wait-for', 'goto', 'screenshot',
-    'assert-exists', 'assert-text', 'assert-url', 'new-tab', 'switch-tab', 'close-tab'];
+    'assert-exists', 'assert-text', 'assert-url', 'new-tab', 'switch-tab', 'close-tab',
+    'get', 'get-attr', 'assert-visible', 'assert-enabled', 'assert-checked',
+    'scroll', 'select', 'cookies-save', 'cookies-load'];
   for (const k of keys) {
     if (k in a) {
       const rest = { ...a }; delete rest[k];
@@ -2063,6 +2206,15 @@ function normalizeAction(a) {
       if (k === 'new-tab') return { type: 'new-tab', url: a[k] || '' };
       if (k === 'switch-tab') return { type: 'switch-tab', index: parseInt(a[k], 10) || 0 };
       if (k === 'close-tab') return { type: 'close-tab' };
+      if (k === 'get') return { type: 'get', selector: a[k] };
+      if (k === 'get-attr') return { type: 'get-attr', selector: a[k], name: a.name || rest.name || '' };
+      if (k === 'assert-visible') return { type: 'assert-visible', selector: a[k] };
+      if (k === 'assert-enabled') return { type: 'assert-enabled', selector: a[k] };
+      if (k === 'assert-checked') return { type: 'assert-checked', selector: a[k] };
+      if (k === 'scroll') return { type: 'scroll', direction: a[k], px: parseInt(a.px, 10) || 0 };
+      if (k === 'select') return { type: 'select', selector: a[k], value: a.value || rest.value || '' };
+      if (k === 'cookies-save') return { type: 'cookies-save', file: a[k] };
+      if (k === 'cookies-load') return { type: 'cookies-load', file: a[k] };
       return { type: k, selector: a[k], ...rest };
     }
   }
@@ -2115,6 +2267,7 @@ module.exports = {
   formatAriaTree,
   captureViewport,
   formatSweep,
+  takeScreenshot,
   runActions,
   formatActionLog,
   parseFlowFile,
