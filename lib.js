@@ -2065,6 +2065,10 @@ async function runActions(context, page, actions, opts = {}) {
           await pg.locator(step.selector).first().waitFor({ state: 'hidden', timeout: maxWait });
           rec.detail = `${step.selector} (gone)`;
           break;
+        case 'eval':
+          await pg.evaluate(step.js);
+          rec.detail = step.js.slice(0, 60) + (step.js.length > 60 ? '…' : '');
+          break;
         case 'screenshot': {
           const file = step.file;
           const savedFile = await takeScreenshot(pg, file, opts, !!step.full);
@@ -2298,6 +2302,8 @@ function parseFlowFile(filePath) {
     if (type === 'fill' || type === 'type' || type === 'assert-text') {
       const m = rest.match(/^(\S+)\s+(.+)$/);
       if (m) out.push({ type, selector: m[1], value: m[2].replace(/^["']|["']$/g, '') });
+    } else if (type === 'eval') {
+      out.push({ type, js: rest });
     } else if (type === 'wait-gone') {
       out.push({ type, selector: rest });
     } else if (type === 'wait' || type === 'wait-ms') {

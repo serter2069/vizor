@@ -134,6 +134,8 @@ function parseArgs(args) {
       opts.actions.push({ type: 'wait-for', selector: args[++i] });
     } else if (a === '--wait-gone' && args[i + 1]) {
       opts.actions.push({ type: 'wait-gone', selector: args[++i] });
+    } else if (a === '--eval' && args[i + 1]) {
+      opts.actions.push({ type: 'eval', js: args[++i] });
     } else if (a === '--wait-ms' && args[i + 1]) {
       opts.actions.push({ type: 'wait', ms: parseInt(args[++i], 10) });
     } else if (a === '--click' && args[i + 1]) {
@@ -286,6 +288,7 @@ Interactive actions (applied in order, before analysis mode):
   --wait-for SEL            wait until SEL visible (10s max)
   --wait-gone SEL           wait until SEL is hidden/removed (10s max)
   --wait-ms N               sleep N milliseconds
+  --eval "JS"               execute JavaScript in page context (localStorage, etc.)
   --assert-exists SEL       fail run if SEL missing
   --assert-text SEL TEXT    fail if element text lacks TEXT
   --assert-url TEXT         fail if current URL lacks TEXT
