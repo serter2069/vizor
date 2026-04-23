@@ -104,6 +104,10 @@ function parseArgs(args) {
     videoFps: 2,
     videoQuality: 40,
     videoTmpDir: null,
+    recordGif: null,
+    gifFps: 8,
+    gifColors: 64,
+    gifWidth: null,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -250,6 +254,14 @@ function parseArgs(args) {
       opts.videoFps = parseInt(args[++i], 10);
     } else if (a === '--video-quality' && args[i + 1]) {
       opts.videoQuality = parseInt(args[++i], 10);
+    } else if (a === '--record-gif' && args[i + 1]) {
+      opts.recordGif = args[++i];
+    } else if (a === '--gif-fps' && args[i + 1]) {
+      opts.gifFps = parseInt(args[++i], 10);
+    } else if (a === '--gif-colors' && args[i + 1]) {
+      opts.gifColors = parseInt(args[++i], 10);
+    } else if (a === '--gif-width' && args[i + 1]) {
+      opts.gifWidth = parseInt(args[++i], 10);
     } else if (a === '--aria') {
       opts.aria = true;
     } else if (a === '--help' || a === '-h') {
@@ -404,6 +416,39 @@ async function saveVideoFile(page, opts) {
   }
 }
 
+async function saveGifFile(page, opts) {
+  if (!opts.recordGif || !page) return;
+  const video = page.video && page.video();
+  if (!video) return;
+
+  const rawWebm = path.join(opts.videoTmpDir || os.tmpdir(), `vizor-gif-${Date.now()}.webm`);
+  try { await video.saveAs(rawWebm); } catch(e) {
+    console.error(`[vizor] GIF save failed: ${e.message}`); return;
+  }
+
+  const outFile = opts.recordGif;
+  const fps = opts.gifFps;
+  const colors = opts.gifColors;
+  const w = opts.gifWidth || opts.viewport.width;
+  const scale = `scale=${w}:-1:flags=lanczos`;
+
+  try {
+    execSync('which ffmpeg', { stdio: 'ignore' });
+    execSync(
+      `ffmpeg -y -i "${rawWebm}" -vf "mpdecimate,fps=${fps},${scale},split[s0][s1];[s0]palettegen=max_colors=${colors}[p];[s1][p]paletteuse=dither=bayer" "${outFile}" 2>/dev/null`,
+      { stdio: 'pipe' }
+    );
+    fs.unlinkSync(rawWebm);
+    console.error(`[vizor] GIF: ${outFile} (${Math.round(fs.statSync(outFile).size / 1024)}KB)`);
+  } catch {
+    console.error('[vizor] GIF: ffmpeg not found — cannot create GIF');
+  }
+
+  if (opts.videoTmpDir) {
+    try { fs.rmSync(opts.videoTmpDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
 async function run() {
   const opts = parseArgs(args);
   let browser, context, page;
@@ -497,7 +542,7 @@ async function run() {
       } else {
         browser = await chromium.launch({ headless: !opts.headed, slowMo: opts.slowMo || 0 });
         const contextOpts = { viewport: opts.viewport };
-        if (opts.recordVideo) {
+        if (opts.recordVideo || opts.recordGif) {
           opts.videoTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vizor-video-'));
           contextOpts.recordVideo = { dir: opts.videoTmpDir, size: opts.viewport };
         }
@@ -688,9 +733,10 @@ async function run() {
       if (opts.cdp) {
         // Don't close CDP-connected browser
       } else {
-        if (opts.recordVideo && page) {
+        if ((opts.recordVideo || opts.recordGif) && page) {
           try { await page.close(); } catch {}  // finalize recording
-          await saveVideoFile(page, opts);
+          if (opts.recordVideo) await saveVideoFile(page, opts);
+          if (opts.recordGif)   await saveGifFile(page, opts);
         }
         await browser.close();
       }
