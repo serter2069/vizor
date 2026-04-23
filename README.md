@@ -439,12 +439,13 @@ Polished CLI designed for AI agents. Rich command set, good ergonomics.
 |-----------|----------|
 | AI agent finding layout bugs | **vizor** |
 | AI agent checking responsive design | **vizor** |
-| Visual regression after deploy | **vizor** or agent-browser |
-| Claude pair-session, user watches browser | Playwright MCP |
-| Scripted automation, no layout needed | agent-browser |
-| Need headed browser (user sees it) | Playwright MCP or agent-browser |
-| Need video / PDF | Playwright MCP or agent-browser |
-| Everything else | **vizor** |
+| Visual regression after deploy | **vizor** |
+| Scripted automation (forms, clicks, flows) | **vizor** |
+| Pair-session, user watches browser | **vizor `--headed`** |
+| Need headed browser | **vizor `--headed`** |
+| Need video recording | Playwright MCP or agent-browser |
+| Need PDF export | Playwright MCP or agent-browser |
+| Need geo / offline emulation | Playwright MCP or agent-browser |
 
 ---
 
