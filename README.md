@@ -428,7 +428,7 @@ Polished CLI designed for AI agents. Rich command set, good ergonomics.
 | Video recording | ❌ | ✅ | ✅ |
 | PDF export | ❌ | ✅ | ✅ |
 | Geo / offline emulation | ❌ | ✅ | ✅ |
-| Standalone CLI | ✅ | ❌ | ✅ |
+| Standalone CLI | ✅ | ✅ `npx @playwright/mcp` | ✅ |
 | Token cost (layout task) | **503–2,185** | 4,332 | 5,038 |
 
 ---
