@@ -15,15 +15,18 @@ vizor https://myapp.com \
   --record-video /tmp/session.mp4           # record test session as video
 ```
 
-### Demo videos (stripe.com)
+### Demo: recording stripe.com (desktop 1440px, 116 KB)
 
-Idle frames are automatically removed — a 30s test with 20s of waiting produces a compact video of actual changes only.
+<video src="assets/demo-stripe-desktop.mp4" autoplay loop muted playsinline width="100%"></video>
 
-| Viewport | Video | Size |
-|----------|-------|------|
-| Desktop 1440px | [demo-stripe-desktop.mp4](assets/demo-stripe-desktop.mp4) | 116 KB |
-| Mobile 430px | [demo-stripe-mobile.mp4](assets/demo-stripe-mobile.mp4) | 44 KB |
-| Click interaction (vercel.com) | [demo-vercel.mp4](assets/demo-vercel.mp4) | 166 KB |
+### Demo: mobile 430px (44 KB) + click interaction on vercel.com (166 KB)
+
+<table><tr>
+<td><video src="assets/demo-stripe-mobile.mp4" autoplay loop muted playsinline width="100%"></video></td>
+<td><video src="assets/demo-vercel.mp4" autoplay loop muted playsinline width="100%"></video></td>
+</tr></table>
+
+Idle frames removed automatically — a 30s test with 20s of waiting produces a compact video of actual changes only.
 
 ---
 
