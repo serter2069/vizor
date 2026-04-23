@@ -2,7 +2,7 @@
 
 **The browser tool built for AI agents.** Navigate, click, analyze layout, detect bugs, take optimized screenshots and videos — all from one CLI, at a fraction of the token cost of alternatives.
 
-![vizor demo — stripe.com mobile](assets/demo-autoplay.gif)
+![vizor demo — vercel.com + stripe.com problems scan](assets/demo-autoplay.gif)
 
 ```bash
 vizor https://myapp.com --problems          # find layout bugs in 503 tokens
@@ -560,26 +560,26 @@ Polished CLI designed for AI agents. Rich command set, good ergonomics.
 
 ---
 
-## Demo videos
+## Demo — `--record-gif`
 
-> Idle frames removed automatically — a 30s test with 20s of waiting produces a compact video of actual changes only.
+> Browser recordings with idle frames removed automatically. Autoplay, no click needed.
 
-**stripe.com desktop 1440px** *(click to play, 116 KB)*
+**stripe.com — desktop 1440px**
 
-[![stripe.com desktop demo](assets/demo-stripe-desktop-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-stripe-desktop.mp4)
+![stripe.com desktop recording](assets/demo-stripe-desktop.gif)
 
 <table><tr>
 <td width="50%">
 
-**stripe.com mobile 430px** *(click, 44 KB)*
+**stripe.com — mobile 430px**
 
-[![stripe.com mobile demo](assets/demo-stripe-mobile-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-stripe-mobile.mp4)
+![stripe.com mobile recording](assets/demo-stripe-mobile.gif)
 
 </td><td width="50%">
 
-**vercel.com desktop + click** *(click, 166 KB)*
+**vercel.com — desktop + click**
 
-[![vercel.com demo](assets/demo-vercel-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-vercel.mp4)
+![vercel.com recording](assets/demo-vercel.gif)
 
 </td></tr></table>
 
