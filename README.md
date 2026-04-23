@@ -1,6 +1,8 @@
 # Vizor CLI
 
-**The browser tool built for AI agents.** Navigate, click, analyze layout, detect bugs, take optimized screenshots — all from one CLI, at a fraction of the token cost of alternatives.
+**The browser tool built for AI agents.** Navigate, click, analyze layout, detect bugs, take optimized screenshots and videos — all from one CLI, at a fraction of the token cost of alternatives.
+
+![vizor demo — stripe.com mobile](assets/demo-autoplay.gif)
 
 ```bash
 vizor https://myapp.com --problems          # find layout bugs in 503 tokens
@@ -12,31 +14,11 @@ vizor https://myapp.com \
   --problems                                # login + analyze in one command
 vizor https://myapp.com \
   --flow tests/login.flow \
-  --record-video /tmp/session.mp4           # record test session as video
+  --record-video /tmp/session.mp4           # record test session as mp4
+vizor https://myapp.com \
+  --flow tests/login.flow \
+  --record-gif /tmp/session.gif             # record test session as GIF
 ```
-
-### Demo: click to play
-
-> Idle frames removed automatically — a 30s test with 20s of waiting produces a compact video of actual changes only.
-
-**stripe.com desktop 1440px — 116 KB** *(click to play)*
-
-[![stripe.com desktop demo](assets/demo-stripe-desktop-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-stripe-desktop.mp4)
-
-<table><tr>
-<td width="50%">
-
-**stripe.com mobile 430px — 44 KB** *(click to play)*
-
-[![stripe.com mobile demo](assets/demo-stripe-mobile-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-stripe-mobile.mp4)
-
-</td><td width="50%">
-
-**vercel.com desktop + click — 166 KB** *(click to play)*
-
-[![vercel.com demo](assets/demo-vercel-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-vercel.mp4)
-
-</td></tr></table>
 
 ---
 
@@ -315,6 +297,10 @@ vizor https://app.com --flow tests/flow.flow \
 | `--record-video FILE` | — | Save session to FILE (.mp4 via ffmpeg, .webm fallback) |
 | `--video-fps N` | `2` | Frames per second for mp4 output |
 | `--video-quality N` | `40` | ffmpeg CRF (1–51, lower = better quality) |
+| `--record-gif FILE` | — | Save session as animated GIF (autoplay on GitHub) |
+| `--gif-fps N` | `8` | GIF frames per second |
+| `--gif-colors N` | `64` | GIF palette size (16–256) |
+| `--gif-width N` | viewport | GIF width in pixels |
 
 **How idle-frame removal works:** ffmpeg `mpdecimate` filter strips consecutive near-identical frames before encoding. A 30-second test with 20 seconds of spinner/skeleton waiting becomes a compact video showing only the actual state changes.
 
@@ -569,6 +555,33 @@ Polished CLI designed for AI agents. Rich command set, good ergonomics.
 | Record test session as video | **vizor** |
 | Need PDF export | Playwright MCP or agent-browser |
 | Need geo / offline emulation | Playwright MCP or agent-browser |
+
+---
+
+---
+
+## Demo videos
+
+> Idle frames removed automatically — a 30s test with 20s of waiting produces a compact video of actual changes only.
+
+**stripe.com desktop 1440px** *(click to play, 116 KB)*
+
+[![stripe.com desktop demo](assets/demo-stripe-desktop-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-stripe-desktop.mp4)
+
+<table><tr>
+<td width="50%">
+
+**stripe.com mobile 430px** *(click, 44 KB)*
+
+[![stripe.com mobile demo](assets/demo-stripe-mobile-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-stripe-mobile.mp4)
+
+</td><td width="50%">
+
+**vercel.com desktop + click** *(click, 166 KB)*
+
+[![vercel.com demo](assets/demo-vercel-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-vercel.mp4)
+
+</td></tr></table>
 
 ---
 
