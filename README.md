@@ -1,263 +1,223 @@
 # Vizor CLI
 
-Headless layout analysis tool for AI agents. Extracts page structure, computed styles, and detects UX problems — **as compact text, not screenshots**.
+**The browser tool built for AI agents.** Navigate, click, analyze layout, detect bugs, take optimized screenshots — all from one CLI, at a fraction of the token cost of alternatives.
 
 ```bash
-vizor https://linear.app --problems    # 503 tokens
-vizor https://linear.app --describe   # 1,146 tokens
-vizor https://linear.app              # 2,185 tokens
+vizor https://myapp.com --problems          # find layout bugs in 503 tokens
+vizor https://myapp.com --ss /tmp/out.webp  # full-page WebP screenshot
+vizor https://myapp.com \
+  --fill "#email" "user@test.com" \
+  --click "button[type=submit]" \
+  --assert-url "/dashboard" \
+  --problems                                # login + analyze in one command
 ```
-
-vs **4,332–5,038 tokens** for a Playwright/agent-browser accessibility snapshot, and **zero structural information** from a raw screenshot.
-
----
-
-## vs Playwright & agent-browser — Real Benchmark
-
-Tested on [linear.app](https://linear.app), April 2024. Same site, same task: *"what layout problems exist?"*
-
-![Token comparison chart](assets/token-chart.png)
-
-| Tool | Output | Tokens | Has dimensions? | Has colors? | Has problems list? |
-|------|--------|--------|----------------|-------------|-------------------|
-| **vizor --problems** | text | **503** | — | — | ✅ auto-detected |
-| **vizor --describe** | text | **1,146** | ✅ | ✅ palette | — |
-| **vizor tree** | text | **2,185** | ✅ exact px | ✅ hex | — |
-| Screenshot (vision) | image | ~1,100 | ❌ | ❌ | ❌ |
-| Playwright ARIA | text | 4,332 | ❌ | ❌ | ❌ |
-| agent-browser snapshot | text | 5,038 | ❌ | ❌ | ❌ |
-
-**vizor `--problems` is 10× cheaper than an accessibility snapshot, and actually tells you what's broken.**
-
-### What each tool outputs
-
-<details>
-<summary><strong>vizor --problems</strong> — 503 tokens, structured problem list</summary>
-
-```
-PROBLEMS: https://linear.app (viewport: 430×932)
-────────────────────────────────────────
-⚠️  overflow: [div.Marquee_root] 836×28 at (-8, 909) — 836 > 430 viewport
-⚠️  hidden-clip: [div.Frame_background] 430×400 at (0, 475)
-⚠️  tiny-tap: [a "Skip to content →"] 430×32 at (0, 72) — min 44×44 for touch
-⚠️  low-contrast: [a "Get started"] — 1.00:1 #08090a on #08090a, need 4.5
-⚠️  no-label: [a.Logos_logosLink] — needs text, aria-label, or title
-⚠️  spacing: [div.LayoutContent] — mt: 33, 39, 47, 79, 7px
-⚠️  z-conflict: [header z:100 vs a.SkipNav z:5000] — may overlap
-Total: 16 problems
-```
-</details>
-
-<details>
-<summary><strong>agent-browser snapshot</strong> — 5,038 tokens, ARIA tree (no layout data)</summary>
-
-```yaml
-- document:
-  - banner:
-    - navigation "Main":
-      - list "Site navigation":
-        - listitem:
-          - link "Navigate to home":
-            - img "Linear"
-        - listitem:
-          - list:
-            - listitem:
-              - button "Product"
-            - listitem:
-              - button "Resources"
-            ...  (continues for 300+ lines, no dimensions, no colors)
-```
-</details>
-
-<details>
-<summary><strong>Screenshot</strong> — ~1,100 vision tokens, pixels only</summary>
-
-| | agent-browser PNG (92 KB) | vizor WebP (95 KB, full page) |
-|--|--|--|
-| | ![agent-browser viewport screenshot](assets/bench-agentbrowser.png) | Full page — [see below](#screenshots--optimization) |
-
-The screenshot shows *how it looks*, not *what's wrong*. No dimensions. No color values. No tap-target sizes. The AI has to guess.
-</details>
 
 ---
 
 ## Install
 
 ```bash
-# Self-contained: downloads playwright + chromium on first run (~165MB, one-time)
+# One-liner — self-contained, no config needed
 curl -fsSL https://raw.githubusercontent.com/serter2069/vizor/main/vizor.js -o vizor && chmod +x vizor
 
 # Or via npm
 npm install -g vizor-cli
 ```
 
-No configuration needed. First run bootstraps its own isolated Playwright runtime into `~/.vizor`.
+First run bootstraps its own isolated Playwright + Chromium into `~/.vizor` (~165MB, one-time). Zero config.
 
 ---
 
-## Quick Start
+## What It Does
 
-```bash
-vizor https://myapp.com --problems         # detect layout/UX issues
-vizor https://myapp.com --describe         # palette, fonts, layout summary
-vizor https://myapp.com                    # full layout tree
-vizor https://myapp.com --compare          # mobile vs desktop side-by-side
-vizor https://myapp.com --ss /tmp/out.webp # optimized full-page screenshot
-```
+Vizor combines two things other tools separate:
+
+**1. Browser automation** — click, fill, scroll, drag, upload, multi-tab, network interception, cookies  
+**2. Layout analysis** — extract exact dimensions, colors, spacing, detect UX problems, compare viewports
+
+No other CLI tool does both. You run one command, get automation + structured layout data.
 
 ---
 
 ## Analysis Modes
 
-| Flag | Tokens (typical) | What it does |
-|------|-----------------|-------------|
-| `--problems` | **~500** | Detected layout/UX issues only |
-| `--describe` | **~1,100** | Design summary: palette, typography, layout structure |
-| _(default)_ | **~2,000** | Full layout tree — dimensions, colors, spacing, position |
-| `--aria` | ~2,000 | ARIA tree (roles, labels, hierarchy) |
-| `--hover SEL` | ~300 | Style delta when hovering a selector |
+| Flag | Tokens | What you get |
+|------|--------|-------------|
+| `--problems` | **~500** | Auto-detected list of layout/UX bugs |
+| `--describe` | **~1,100** | Design summary: palette, fonts, layout structure |
+| _(default)_ | **~2,000** | Full layout tree: dimensions, colors, spacing, position |
+| `--aria` | ~2,000 | ARIA tree: roles, labels, hierarchy |
 | `--compare` | ~4,000 | Mobile (430×932) vs desktop (1440×900) side-by-side |
-| `--sweep` | ~5,000 | 5 viewports: 320, 430, 768, 1024, 1440px |
+| `--sweep` | ~5,000 | 5 viewports at once: 320, 430, 768, 1024, 1440px |
 | `--sweep-viewports W1xH1,...` | varies | Custom viewport list |
+| `--hover SEL` | ~300 | CSS style delta on hover |
 | `--diff FILE` | ~500 | Changed elements vs saved baseline |
 
----
+### Problem Detection (11 types)
 
-## Problem Detection (10 types)
+```
+vizor https://linear.app --problems
+```
+
+```
+PROBLEMS: https://linear.app (viewport: 430×932)
+────────────────────────────────────────────────────
+⚠️  overflow:        div.Marquee 836×28 — wider than 430px viewport
+⚠️  hidden-clip:     div.Frame_background 430×400 — content clipped
+⚠️  tiny-tap:        a "Skip to content" 430×32 — min 44×44px for touch
+⚠️  low-contrast:    a "Get started" — 1.00:1 ratio, need 4.5 (WCAG AA)
+⚠️  no-label:        a.Logos_logosLink — no text, aria-label, or title
+⚠️  spacing:         div.LayoutContent — inconsistent margins: 33,39,47,79,7px
+⚠️  z-conflict:      header z:100 vs a.SkipNav z:5000 — may overlap
+Total: 16 problems
+```
 
 | Problem | What it finds |
 |---------|--------------|
 | `overflow` | Element wider than viewport without scrollable parent |
-| `hidden-clip` | `overflow:hidden` clips visible content |
+| `hidden-clip` | `overflow:hidden` clipping visible content |
 | `tiny-tap` | Interactive element smaller than 44×44px (touch target) |
 | `tiny-text` | Font size < 12px |
-| `low-contrast` | Text contrast ratio below WCAG AA threshold (4.5:1) |
-| `offscreen` | Element completely outside viewport |
-| `no-label` | Button/link with no text or aria-label |
+| `low-contrast` | Text contrast below WCAG AA (4.5:1) |
+| `offscreen` | Element fully outside viewport |
+| `no-label` | Button/link with no accessible text |
 | `clickable-no-role` | `div` with onclick but no `role="button"` |
-| `ghost` | Large invisible element (opacity:0) covering content |
+| `ghost` | Large invisible element (opacity:0) blocking clicks |
 | `spacing` | Inconsistent margins between siblings |
 | `z-conflict` | Fixed/sticky elements with overlapping z-index |
 
 ---
 
-## Screenshots & Optimization
-
-```bash
-# Full-page WebP (sharp auto-installed, ~25MB one-time)
-vizor https://myapp.com --ss /tmp/out.webp           # mobile 430px, full page
-vizor https://myapp.com --ss /tmp/out.webp --desktop  # desktop 1440px, full page
-vizor https://myapp.com --ss /tmp/out.webp --viewport 768x1024
-
-# Control quality and width
-vizor https://myapp.com --screenshot /tmp/out.jpg    # JPEG quality 70 (native, no deps)
-vizor https://myapp.com --screenshot /tmp/out.webp --screenshot-quality 40 --screenshot-width 800
-
-# Mid-flow screenshot
-vizor https://myapp.com --click ".menu" --screenshot /tmp/menu.jpg --problems
-```
-
-**File size comparison on the same page (linear.app, mobile viewport):**
-
-| Format | Size | Tokens (vision) | Notes |
-|--------|------|-----------------|-------|
-| PNG | 103 KB | ~680 | baseline |
-| JPEG q70 | 32 KB | ~680 | native Playwright, no deps |
-| **WebP q55** | **17 KB** | ~680 | 6× smaller, sharp auto-install |
-| WebP q55 full-page | 95 KB | ~3,400 | entire 430×6,530px page |
-
-> Vision token cost is per image size, not file size — JPEG and WebP look the same to the model but are 3–6× cheaper to store/transfer.
-
----
-
 ## Interactive Actions
 
-Actions run before analysis, in order. Combine freely.
+All actions run in sequence before analysis. Combine freely.
+
+### Navigation & Input
 
 ```bash
-# Login flow, then check layout
 vizor https://app.com \
   --fill "#email" "user@example.com" \
   --fill "#password" "secret" \
   --click "button[type=submit]" \
   --wait-for ".dashboard" \
   --problems
+```
 
-# Assert state
+| Flag | What it does |
+|------|-------------|
+| `--click SEL` | Click element |
+| `--fill SEL VAL` | Clear and fill input |
+| `--type SEL VAL` | Type character by character (React inputs) |
+| `--press KEY` | Keyboard: `Enter`, `Tab`, `Escape`, `ArrowDown`, … |
+| `--goto URL` | Navigate to URL mid-flow |
+| `--scroll up\|down\|top\|bottom\|SEL [px]` | Scroll page or element into view |
+| `--select SEL VALUE` | Select dropdown option |
+| `--drag SOURCE TARGET` | Drag element and drop onto target |
+| `--upload SEL FILE...` | Set files on `<input type="file">` |
+| `--hover SEL` | Hover element (also works as analysis mode) |
+| `--wait-for SEL` | Wait until selector visible (10s max) |
+| `--wait-ms N` | Sleep N milliseconds |
+
+### Assertions
+
+```bash
 vizor https://app.com \
   --click ".toggle" \
   --assert-visible ".dropdown" \
   --assert-enabled "button[type=submit]" \
-  --get ".badge"   # prints text in action log
-
-# Capture console errors alongside layout check
-vizor https://app.com --console-errors --problems
+  --assert-text ".badge" "3"
 ```
 
-| Action | Syntax |
-|--------|--------|
-| `--click SEL` | Click element |
-| `--fill SEL VAL` | Clear and fill input |
-| `--type SEL VAL` | Type into input (no clear) |
-| `--press KEY` | Keyboard key: `Enter`, `Tab`, `ArrowDown`, … |
-| `--goto URL` | Navigate mid-flow |
-| `--scroll up\|down\|top\|bottom\|SEL [px]` | Scroll page or element into view |
-| `--select SEL VALUE` | Select dropdown option |
-| `--wait-for SEL` | Wait until selector visible (10s max) |
-| `--wait-ms N` | Sleep N milliseconds |
-| `--hover SEL` | Hover (also available as analysis mode) |
-| `--screenshot FILE` | Save PNG/JPEG/WebP screenshot |
-| `--ss FILE` | Shortcut: full-page WebP, q55, max 1200px |
-| `--full-screenshot FILE` | Full-page screenshot in any format |
-| `--assert-exists SEL` | Fail if selector missing |
-| `--assert-text SEL TEXT` | Fail if element text lacks TEXT |
-| `--assert-url TEXT` | Fail if current URL lacks TEXT |
+| Flag | What it does |
+|------|-------------|
+| `--assert-exists SEL` | Fail if selector not found |
+| `--assert-text SEL TEXT` | Fail if element text doesn't contain TEXT |
+| `--assert-url TEXT` | Fail if current URL doesn't contain TEXT |
 | `--assert-visible SEL` | Fail if element not visible |
-| `--assert-enabled SEL` | Fail if element not enabled |
+| `--assert-enabled SEL` | Fail if element disabled |
 | `--assert-checked SEL` | Fail if checkbox not checked |
+
+### Queries
+
+| Flag | What it does |
+|------|-------------|
 | `--get SEL` | Print element text in action log |
 | `--get-attr SEL NAME` | Print attribute value in action log |
-| `--flow FILE` | Load actions from JSON or line-based file |
-| `--actions-log` | Always print action log (default: only on failure) |
-| `--console-errors` | Capture JS errors + uncaught exceptions |
-| `--console-logs` | Capture all console output |
-| `--cookies-load FILE` | Load cookies from JSON (before navigation) |
-| `--cookies-save FILE` | Save cookies to JSON (after flow) |
 
----
-
-## Multi-Tab
+### Multi-Tab
 
 ```bash
-# Open a second tab, analyze it
-vizor https://app.com --new-tab https://app.com/dashboard --problems
-
-# Open tab, switch back to first
 vizor https://app.com \
-  --new-tab https://app.com/settings \
+  --new-tab https://app.com/dashboard \
+  --assert-url "/dashboard" \
   --switch-tab 0 \
   --problems
 ```
 
-| Action | Syntax |
-|--------|--------|
-| `--new-tab URL` | Open URL in a new tab (becomes active) |
+| Flag | What it does |
+|------|-------------|
+| `--new-tab URL` | Open URL in new tab (becomes active) |
 | `--new-tab-blank` | Open blank tab |
-| `--switch-tab N` | Switch active tab by index (0 = first) |
-| `--close-tab` | Close active tab, switch to previous |
+| `--switch-tab N` | Switch tab by index (0 = first) |
+| `--close-tab` | Close active tab |
+
+---
+
+## Screenshots & Visual Regression
+
+### Optimized Screenshots
+
+```bash
+vizor https://app.com --ss /tmp/out.webp              # mobile, full page, WebP q55
+vizor https://app.com --ss /tmp/out.webp --desktop    # desktop 1440px
+vizor https://app.com --ss /tmp/out.webp --viewport 768x1024
+
+vizor https://app.com --screenshot /tmp/out.jpg       # JPEG q70, viewport only
+vizor https://app.com --full-screenshot /tmp/out.jpg  # JPEG q70, full page
+vizor https://app.com --screenshot /tmp/out.webp \
+  --screenshot-quality 40 \
+  --screenshot-width 800                              # custom quality + resize
+```
+
+**File sizes on the same page (linear.app, mobile):**
+
+| Format | Size | Notes |
+|--------|------|-------|
+| PNG | 103 KB | default Playwright output |
+| JPEG q70 | 32 KB | native, no extra deps |
+| **WebP q55** | **17 KB** | 6× smaller, sharp auto-installed |
+| WebP full-page | 95 KB | entire 430×6,530px page |
+
+### Pixel Regression
+
+```bash
+# First run: saves baseline automatically
+vizor https://app.com --screenshot-diff /tmp/baseline.png
+
+# After deploy: compare vs baseline (fail if >0.5% pixels changed)
+vizor https://app.com --screenshot-diff /tmp/baseline.png
+
+# Custom threshold
+vizor https://app.com --screenshot-diff /tmp/baseline.png 2.0
+
+# Output on pass:  ✓  screenshot-diff  0.00% diff (0 px) — OK
+# Output on fail:  ✗  screenshot-diff  72.59% exceeds threshold 0.5%
+```
 
 ---
 
 ## Network Interception
 
 ```bash
-# Capture all XHR/fetch requests
+# Capture all API calls
 vizor https://app.com --net-capture --problems
 
-# Stub an API endpoint with a fixture
-vizor https://app.com --net-stub "**/api/user" fixtures/user.json --problems
+# Mock an endpoint with fixture data
+vizor https://app.com \
+  --net-stub "**/api/user" fixtures/user.json \
+  --problems
 
-# Block all API calls (test offline state)
+# Test offline/error state
 vizor https://app.com --net-block "**/api/**" --problems
 ```
 
@@ -274,7 +234,28 @@ NET CAPTURE: https://app.com
 
 ---
 
+## Console & Session
+
+```bash
+# Catch JS errors during page load or after actions
+vizor https://app.com --console-errors --problems
+
+# Persist login across runs
+vizor https://app.com \
+  --fill "#email" "user@example.com" \
+  --click "button[type=submit]" \
+  --cookies-save /tmp/session.json
+
+vizor https://app.com/dashboard \
+  --cookies-load /tmp/session.json \
+  --problems
+```
+
+---
+
 ## Flow Files
+
+Run a reusable sequence from a file:
 
 ```bash
 vizor https://app.com --flow tests/login.json --problems
@@ -283,47 +264,25 @@ vizor https://app.com --flow tests/login.json --problems
 **JSON format:**
 ```json
 [
-  { "goto": "https://app.com/login" },
   { "fill": "#email", "value": "user@example.com" },
   { "fill": "#password", "value": "secret" },
   { "click": "button[type=submit]" },
   { "wait-for": ".dashboard" },
   { "assert-url": "/dashboard" },
-  { "screenshot": "/tmp/result.webp" }
+  { "screenshot": "/tmp/dashboard.webp" }
 ]
 ```
 
-**Line-based format:**
+**Line format:**
 ```
-goto https://app.com/login
 fill #email user@example.com
+fill #password secret
 click button[type=submit]
 wait-for .dashboard
 assert-url /dashboard
-scroll bottom
 screenshot /tmp/result.jpg
-```
-
----
-
-## Output Example
-
-```
-PAGE: https://app.com (viewport: 430×932)
-────────────────────────────────────────────────────────────────
-[body] 430x932
-  [header.navbar] 430x56 flex-row bg:#1a1a2e jc:between ai:center sticky(0,_) z:100
-    [div.logo "MyApp"] 99x28
-    [button "Login"] 76x44 bg:#e94560 r:8
-  [main] 430x1200 flex-col
-    [section.hero] 430x300 flex-col ai:center p:40,16
-      [h1 "Welcome"] 398x32 font:28/700 #ffffff
-      [p "Browse our products"] 398x18 font:16 #a0a0b0
-    [div.cards-grid] 398x424 grid-2col gap:12
-      [div.card] 193x214 bg:#ffffff r:12
-        [div.card-img] 193x120 bg:#dddddd
-        [div.card-title "Product Name"] 169x16 font:14/600
-        [div.card-price "$299"] 169x18 font:16/700 #e94560
+scroll bottom
+screenshot-diff /tmp/baseline.png
 ```
 
 ---
@@ -331,31 +290,150 @@ PAGE: https://app.com (viewport: 430×932)
 ## Setup Options
 
 ```
---viewport WxH    Viewport size (default: 430x932 mobile)
---desktop         Shortcut for --viewport 1440x900
---depth N         Max tree depth (default: 8)
---no-warnings     Hide warning flags
---wait N          Initial render wait in ms (default: 2000)
---cdp PORT        Connect to existing browser via CDP
---save FILE       Save analysis output to file
-
-Screenshot optimization:
---screenshot-quality N    JPEG/WebP quality 1-100 (default: 70 JPEG, 55 WebP)
---screenshot-width N      Resize to max N px wide (uses sharp, auto-installed)
+--viewport WxH            Viewport size (default: 430x932 — mobile)
+--desktop                 Shortcut for --viewport 1440x900
+--depth N                 Tree depth (default: 8)
+--wait N                  Initial render wait in ms (default: 2000)
+--no-warnings             Hide warning markers in tree
+--cdp PORT                Connect to existing browser via CDP
+--save FILE               Save analysis output to file
+--actions-log             Always print action log (default: only on failure)
+--screenshot-quality N    JPEG/WebP quality 1-100 (JPEG: 70, WebP: 55)
+--screenshot-width N      Resize screenshot to max N px wide
 ```
 
 ---
 
-## How It Works
+---
 
-1. Launches headless Chromium via Playwright (self-installed into `~/.vizor`)
-2. Navigates to URL, runs optional action flow
-3. Calls `page.evaluate()` — walks the DOM, reads `getBoundingClientRect()` + `getComputedStyle()` for every visible element
-4. Formats a compact text tree:
-   - CSS-in-JS class names (`css-xxx`, `r-xxx`) auto-filtered
-   - Unstyled wrapper divs collapsed
-   - Repeated siblings collapsed (`… ×5 more div.card`)
-   - Text, `aria-label`, `placeholder` used for readable selectors
+# vs Playwright MCP, Playwright CLI, agent-browser
+
+There are three popular browser tools used by AI agents today. Here's how they compare — with real benchmark data.
+
+---
+
+## The Benchmark
+
+**Same site. Same task: find layout problems on [linear.app](https://linear.app)**
+
+![Token comparison chart](assets/token-chart.png)
+
+| Tool | Output | Tokens | Dimensions? | Colors? | Problems list? |
+|------|--------|--------|------------|---------|---------------|
+| **vizor `--problems`** | text | **503** | — | — | ✅ auto |
+| **vizor `--describe`** | text | **1,146** | ✅ px | ✅ hex | — |
+| **vizor tree** | text | **2,185** | ✅ px | ✅ hex | — |
+| Screenshot (vision) | image | ~1,100 | ❌ | ❌ | ❌ |
+| [Playwright MCP](https://github.com/microsoft/playwright-mcp) ARIA | text | 4,332 | ❌ | ❌ | ❌ |
+| [agent-browser](https://agent-browser.dev) snapshot | text | 5,038 | ❌ | ❌ | ❌ |
+
+---
+
+## Tool-by-Tool Breakdown
+
+### [Playwright MCP](https://github.com/microsoft/playwright-mcp) — by Microsoft
+
+MCP server that connects Claude/AI assistants to a browser. Best-in-class for natural-language-driven automation inside an AI conversation.
+
+**Strengths:**
+- Deep IDE/Claude integration as MCP server
+- Full Playwright API surface
+- Headed mode (user sees the browser)
+- Video, traces, network inspection
+
+**Limitations:**
+- Outputs ARIA accessibility tree — no layout dimensions, no colors
+- No built-in problem detection
+- Not designed as a standalone CLI
+- Screenshot = PNG only, no optimization
+
+**Best for:** Natural-language browser control inside Claude, pair-review sessions where the user watches the browser.
+
+---
+
+### [agent-browser](https://agent-browser.dev) — standalone CLI
+
+Polished CLI designed for AI agents. Rich command set, good ergonomics.
+
+**Strengths:**
+- Clean API: `agent-browser open`, `click`, `snapshot`, `screenshot`
+- Pixel regression: `diff screenshot --baseline`
+- Geo emulation, custom headers, offline mode
+- PDF export, video recording
+- `find` by role/label/placeholder (semantic locators)
+
+**Limitations:**
+- Snapshot = ARIA tree only (4,332–5,038 tokens) — no layout data
+- Screenshot = PNG only, no WebP/JPEG optimization
+- No layout analysis, no problem detection
+- No multi-viewport comparison
+
+**Best for:** Scripted browser automation where you don't need layout analysis and want a polished, dedicated CLI.
+
+---
+
+### Vizor — this tool
+
+**Strengths:**
+- Layout analysis + automation in one tool
+- `--problems`: 11 types of UX bugs auto-detected
+- `--describe`: palette, typography, layout structure
+- `--compare` / `--sweep`: multi-viewport analysis
+- Optimized screenshots: WebP q55 = 6× smaller than PNG
+- Pixel regression: `--screenshot-diff baseline.png`
+- Drag & drop, file upload, cookies, console capture
+- Full flow automation: click, fill, scroll, assert
+- Cheaper: 503–2,185 tokens vs 4,332–5,038
+
+**Limitations:**
+- No headed mode (always headless)
+- No video recording
+- No PDF export
+- No geo/offline emulation (yet)
+
+**Best for:** AI agents that need to both automate AND analyze the UI — finding layout bugs, checking responsive behavior, running visual regression after deploys.
+
+---
+
+## Feature Matrix
+
+| Feature | vizor | [Playwright MCP](https://github.com/microsoft/playwright-mcp) | [agent-browser](https://agent-browser.dev) |
+|---------|-------|---------------|--------------|
+| Click, fill, type | ✅ | ✅ | ✅ |
+| Scroll, select, drag | ✅ | ✅ | ✅ |
+| File upload | ✅ | ✅ | ✅ |
+| Multi-tab | ✅ | ✅ | ✅ |
+| Assertions | ✅ | ✅ | ✅ |
+| Network intercept | ✅ | ✅ | ✅ |
+| Cookies / session | ✅ | ✅ | ✅ |
+| Console capture | ✅ | ✅ | ✅ |
+| **Layout tree (px, colors)** | ✅ | ❌ | ❌ |
+| **Problem detection (11 types)** | ✅ | ❌ | ❌ |
+| **Design summary (palette, fonts)** | ✅ | ❌ | ❌ |
+| **Multi-viewport sweep** | ✅ | ❌ | ❌ |
+| **WebP/JPEG optimized screenshots** | ✅ | ❌ | ❌ |
+| Pixel regression | ✅ | ❌ | ✅ |
+| Headed mode (user sees browser) | ❌ | ✅ | ✅ |
+| Video recording | ❌ | ✅ | ✅ |
+| PDF export | ❌ | ✅ | ✅ |
+| Geo / offline emulation | ❌ | ✅ | ✅ |
+| Standalone CLI | ✅ | ❌ | ✅ |
+| Token cost (layout task) | **503–2,185** | 4,332 | 5,038 |
+
+---
+
+## When to Use What
+
+| Situation | Best tool |
+|-----------|----------|
+| AI agent finding layout bugs | **vizor** |
+| AI agent checking responsive design | **vizor** |
+| Visual regression after deploy | **vizor** or agent-browser |
+| Claude pair-session, user watches browser | Playwright MCP |
+| Scripted automation, no layout needed | agent-browser |
+| Need headed browser (user sees it) | Playwright MCP or agent-browser |
+| Need video / PDF | Playwright MCP or agent-browser |
+| Everything else | **vizor** |
 
 ---
 
