@@ -100,6 +100,10 @@ function parseArgs(args) {
     screenshotWidth: null,
     captureConsole: null,
     vizorHome: path.join(os.homedir(), '.vizor'),
+    recordVideo: null,
+    videoFps: 2,
+    videoQuality: 40,
+    videoTmpDir: null,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -238,6 +242,12 @@ function parseArgs(args) {
         const [w, h] = s.trim().split('x').map(Number);
         return { width: w, height: h };
       }).filter(v => v.width && v.height);
+    } else if (a === '--record-video' && args[i + 1]) {
+      opts.recordVideo = args[++i];
+    } else if (a === '--video-fps' && args[i + 1]) {
+      opts.videoFps = parseInt(args[++i], 10);
+    } else if (a === '--video-quality' && args[i + 1]) {
+      opts.videoQuality = parseInt(args[++i], 10);
     } else if (a === '--aria') {
       opts.aria = true;
     } else if (a === '--help' || a === '-h') {
@@ -276,6 +286,11 @@ Screenshot:
   --screenshot-quality N    JPEG/WebP quality 1-100 (default: 70 JPEG, 55 WebP)
   --screenshot-width N      resize to max N px wide (requires sharp, auto-installed)
   --ss FILE                 shortcut: WebP, quality 55, max 1200px
+
+Video recording:
+  --record-video FILE       record session to FILE (.mp4 via ffmpeg, .webm fallback)
+  --video-fps N             frames per second (default: 2)
+  --video-quality N         ffmpeg CRF quality 1-51 (default: 40, lower=better)
 
 State assertions:
   --assert-visible SEL      fail if element not visible
@@ -343,6 +358,47 @@ function shortUrl(url) {
 // true if any of the analysis modes is selected
 function hasAnalysisMode(opts) {
   return !!(opts.problems || opts.compare || opts.describe || opts.hover || opts.sweep || opts.aria || opts.diff);
+}
+
+async function saveVideoFile(page, opts) {
+  if (!opts.recordVideo || !page) return;
+  const video = page.video && page.video();
+  if (!video) return;
+
+  const outFile = opts.recordVideo;
+  const needsFfmpeg = outFile.endsWith('.mp4');
+  const rawWebm = needsFfmpeg
+    ? path.join(opts.videoTmpDir || os.tmpdir(), `vizor-raw-${Date.now()}.webm`)
+    : outFile;
+
+  try {
+    await video.saveAs(rawWebm);
+  } catch (e) {
+    console.error(`[vizor] Video save failed: ${e.message}`);
+    return;
+  }
+
+  if (needsFfmpeg) {
+    try {
+      execSync('which ffmpeg 2>/dev/null || where ffmpeg 2>/dev/null', { stdio: 'ignore' });
+      execSync(
+        `ffmpeg -y -i "${rawWebm}" -r ${opts.videoFps} -c:v libx264 -crf ${opts.videoQuality} -preset fast "${outFile}" 2>/dev/null`,
+        { stdio: 'pipe' }
+      );
+      fs.unlinkSync(rawWebm);
+      console.error(`[vizor] Video: ${outFile} (${Math.round(fs.statSync(outFile).size / 1024)}KB)`);
+    } catch {
+      const webmOut = outFile.replace(/\.mp4$/, '.webm');
+      try { fs.renameSync(rawWebm, webmOut); } catch {}
+      console.error(`[vizor] ffmpeg not found — saved as WebM: ${webmOut}`);
+    }
+  } else {
+    console.error(`[vizor] Video: ${outFile} (${Math.round(fs.statSync(outFile).size / 1024)}KB)`);
+  }
+
+  if (opts.videoTmpDir) {
+    try { fs.rmSync(opts.videoTmpDir, { recursive: true, force: true }); } catch {}
+  }
 }
 
 async function run() {
@@ -437,7 +493,12 @@ async function run() {
         await page.setViewportSize(opts.viewport);
       } else {
         browser = await chromium.launch({ headless: !opts.headed, slowMo: opts.slowMo || 0 });
-        context = await browser.newContext({ viewport: opts.viewport });
+        const contextOpts = { viewport: opts.viewport };
+        if (opts.recordVideo) {
+          opts.videoTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vizor-video-'));
+          contextOpts.recordVideo = { dir: opts.videoTmpDir, size: opts.viewport };
+        }
+        context = await browser.newContext(contextOpts);
         page = await context.newPage();
       }
 
@@ -624,6 +685,10 @@ async function run() {
       if (opts.cdp) {
         // Don't close CDP-connected browser
       } else {
+        if (opts.recordVideo && page) {
+          try { await page.close(); } catch {}  // finalize recording
+          await saveVideoFile(page, opts);
+        }
         await browser.close();
       }
     }
