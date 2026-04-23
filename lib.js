@@ -2105,6 +2105,69 @@ async function runActions(context, page, actions, opts = {}) {
           rec.detail = `${step.file} (${cookies.length} cookies)`;
           break;
         }
+        case 'drag': {
+          await pg.dragAndDrop(step.source, step.target, { timeout: maxWait });
+          rec.detail = `${step.source} → ${step.target}`;
+          break;
+        }
+        case 'upload': {
+          const files = Array.isArray(step.files) ? step.files : [step.files];
+          await pg.locator(step.selector).first().setInputFiles(files, { timeout: maxWait });
+          rec.detail = `${step.selector} ← ${files.join(', ')}`;
+          break;
+        }
+        case 'screenshot-diff': {
+          const os = require('os');
+          const path = require('path');
+          const fs = require('fs');
+          const { execSync } = require('child_process');
+          const baseline = step.baseline;
+          if (!fs.existsSync(baseline)) {
+            // No baseline yet — save current screenshot as baseline
+            const buf = await pg.screenshot({ fullPage: !!step.full });
+            fs.writeFileSync(baseline, buf);
+            rec.detail = `baseline saved → ${baseline}`;
+            break;
+          }
+          const vizorHome = opts.vizorHome || path.join(os.homedir(), '.vizor');
+          const sharpPath = path.join(vizorHome, 'node_modules/sharp');
+          let sharp;
+          try { sharp = require(sharpPath); } catch {
+            execSync('npm install sharp', { cwd: vizorHome, stdio: 'inherit' });
+            sharp = require(sharpPath);
+          }
+          const currentBuf = await pg.screenshot({ fullPage: !!step.full });
+          const baselineBuf = fs.readFileSync(baseline);
+          const currentImg = sharp(currentBuf);
+          const baselineImg = sharp(baselineBuf);
+          const [curMeta, baseMeta] = await Promise.all([currentImg.metadata(), baselineImg.metadata()]);
+          if (curMeta.width !== baseMeta.width || curMeta.height !== baseMeta.height) {
+            throw new Error(`size mismatch: current ${curMeta.width}x${curMeta.height} vs baseline ${baseMeta.width}x${baseMeta.height}`);
+          }
+          const [curRaw, baseRaw] = await Promise.all([
+            sharp(currentBuf).raw().toBuffer(),
+            sharp(baselineBuf).raw().toBuffer(),
+          ]);
+          let diffPixels = 0;
+          const threshold = (step.threshold || 10);
+          for (let i = 0; i < curRaw.length; i += 4) {
+            const dr = Math.abs(curRaw[i] - baseRaw[i]);
+            const dg = Math.abs(curRaw[i+1] - baseRaw[i+1]);
+            const db = Math.abs(curRaw[i+2] - baseRaw[i+2]);
+            if (dr > threshold || dg > threshold || db > threshold) diffPixels++;
+          }
+          const totalPixels = curMeta.width * curMeta.height;
+          const pct = ((diffPixels / totalPixels) * 100).toFixed(2);
+          const maxDiff = step.maxDiff != null ? step.maxDiff : 0.5;
+          if (step.saveDiff) {
+            fs.writeFileSync(step.saveDiff, currentBuf);
+          }
+          if (parseFloat(pct) > maxDiff) {
+            throw new Error(`pixel diff ${pct}% exceeds threshold ${maxDiff}% (${diffPixels.toLocaleString()} pixels changed)`);
+          }
+          rec.detail = `${pct}% diff (${diffPixels.toLocaleString()} px) — OK`;
+          break;
+        }
         default:
           throw new Error(`unknown action: ${step.type}`);
       }

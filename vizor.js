@@ -171,6 +171,20 @@ function parseArgs(args) {
       opts.actions.unshift({ type: 'cookies-load', file: args[++i] });
     } else if (a === '--cookies-save' && args[i + 1]) {
       opts.actions.push({ type: 'cookies-save', file: args[++i] });
+    } else if (a === '--drag' && args[i + 2]) {
+      opts.actions.push({ type: 'drag', source: args[++i], target: args[++i] });
+    } else if (a === '--upload' && args[i + 2]) {
+      const sel = args[++i];
+      const files = [];
+      while (args[i + 1] && !args[i + 1].startsWith('--')) files.push(args[++i]);
+      opts.actions.push({ type: 'upload', selector: sel, files });
+    } else if (a === '--screenshot-diff' && args[i + 1]) {
+      const step = { type: 'screenshot-diff', baseline: args[++i] };
+      if (args[i + 1] && !args[i + 1].startsWith('--')) step.maxDiff = parseFloat(args[++i]);
+      opts.actions.push(step);
+    } else if (a === '--screenshot-diff-save' && args[i + 1]) {
+      const last = opts.actions.findLast(s => s.type === 'screenshot-diff');
+      if (last) last.saveDiff = args[++i];
     } else if (a === '--assert-exists' && args[i + 1]) {
       opts.actions.push({ type: 'assert-exists', selector: args[++i] });
     } else if (a === '--assert-text' && args[i + 2]) {
@@ -269,6 +283,12 @@ Queries (output in action log):
 Interaction:
   --scroll up|down|top|bottom|SEL [px]  scroll page or element into view
   --select SEL VALUE        select dropdown option
+  --drag SOURCE TARGET      drag element SOURCE and drop onto TARGET
+  --upload SEL FILE...      set files on <input type="file"> element
+
+Visual regression:
+  --screenshot-diff BASELINE [maxDiff%]  compare vs baseline PNG (auto-saves if missing)
+  --screenshot-diff-save FILE            save current screenshot alongside diff check
 
 Console:
   --console-errors          capture JS errors + uncaught exceptions
