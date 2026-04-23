@@ -1883,10 +1883,13 @@ function formatSweep(results, url) {
 
 // Interactive action runner — applies a sequence of {type, ...args} steps against a Playwright page.
 // Returns { ok, steps:[{i, type, status, detail, ms}], failed:<step|null> }.
-async function runActions(page, actions, opts = {}) {
+async function runActions(context, page, actions, opts = {}) {
   const log = [];
   const maxWait = opts.maxWait || 10000;
   let failed = null;
+  const pages = [page];
+  let pg = page;
+
   for (let i = 0; i < actions.length; i++) {
     const step = actions[i];
     const t0 = Date.now();
@@ -1894,48 +1897,48 @@ async function runActions(page, actions, opts = {}) {
     try {
       switch (step.type) {
         case 'goto':
-          await page.goto(step.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          try { await page.waitForLoadState('networkidle', { timeout: 3000 }); } catch {}
+          await pg.goto(step.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          try { await pg.waitForLoadState('networkidle', { timeout: 3000 }); } catch {}
           rec.detail = step.url;
           break;
         case 'click':
-          await page.locator(step.selector).first().click({ timeout: maxWait });
+          await pg.locator(step.selector).first().click({ timeout: maxWait });
           rec.detail = step.selector;
           break;
         case 'fill':
-          await page.locator(step.selector).first().fill(step.value, { timeout: maxWait });
+          await pg.locator(step.selector).first().fill(step.value, { timeout: maxWait });
           rec.detail = `${step.selector} = "${step.value}"`;
           break;
         case 'type':
-          await page.locator(step.selector).first().pressSequentially(step.value, { timeout: maxWait });
+          await pg.locator(step.selector).first().pressSequentially(step.value, { timeout: maxWait });
           rec.detail = `${step.selector} += "${step.value}"`;
           break;
         case 'press':
-          await page.keyboard.press(step.key);
+          await pg.keyboard.press(step.key);
           rec.detail = step.key;
           break;
         case 'wait':
-          await page.waitForTimeout(step.ms);
+          await pg.waitForTimeout(step.ms);
           rec.detail = `${step.ms}ms`;
           break;
         case 'wait-for':
-          await page.locator(step.selector).first().waitFor({ state: step.state || 'visible', timeout: maxWait });
+          await pg.locator(step.selector).first().waitFor({ state: step.state || 'visible', timeout: maxWait });
           rec.detail = `${step.selector} (${step.state || 'visible'})`;
           break;
         case 'screenshot': {
           const file = step.file;
-          await page.screenshot({ path: file, fullPage: !!step.full });
+          await pg.screenshot({ path: file, fullPage: !!step.full });
           rec.detail = file;
           break;
         }
         case 'assert-exists': {
-          const count = await page.locator(step.selector).count();
+          const count = await pg.locator(step.selector).count();
           if (count === 0) throw new Error(`not found: ${step.selector}`);
           rec.detail = `${step.selector} (${count} match${count !== 1 ? 'es' : ''})`;
           break;
         }
         case 'assert-text': {
-          const loc = page.locator(step.selector).first();
+          const loc = pg.locator(step.selector).first();
           const text = (await loc.textContent({ timeout: maxWait }) || '').trim();
           const want = (step.value || '').trim();
           if (!text.includes(want)) throw new Error(`text mismatch: "${text.slice(0, 80)}" ∌ "${want}"`);
@@ -1943,9 +1946,37 @@ async function runActions(page, actions, opts = {}) {
           break;
         }
         case 'assert-url': {
-          const cur = page.url();
+          const cur = pg.url();
           if (!cur.includes(step.value)) throw new Error(`url mismatch: ${cur} ∌ ${step.value}`);
           rec.detail = `url ∋ "${step.value}"`;
+          break;
+        }
+        case 'new-tab': {
+          if (!context) throw new Error('new-tab requires a browser context (not available in CDP mode)');
+          const newPage = await context.newPage();
+          if (step.url) {
+            await newPage.goto(step.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            try { await newPage.waitForLoadState('networkidle', { timeout: 3000 }); } catch {}
+          }
+          pages.push(newPage);
+          pg = newPage;
+          rec.detail = step.url || '(blank)';
+          break;
+        }
+        case 'switch-tab': {
+          const idx = parseInt(step.index ?? 0, 10);
+          if (idx < 0 || idx >= pages.length) throw new Error(`tab ${idx} out of range (${pages.length} open)`);
+          pg = pages[idx];
+          rec.detail = `→ tab ${idx} (${pg.url()})`;
+          break;
+        }
+        case 'close-tab': {
+          const closedIdx = pages.indexOf(pg);
+          await pg.close();
+          pages.splice(closedIdx, 1);
+          if (pages.length === 0) throw new Error('no tabs left after close');
+          pg = pages[Math.max(0, closedIdx - 1)];
+          rec.detail = `closed tab ${closedIdx}`;
           break;
         }
         default:
@@ -1960,7 +1991,7 @@ async function runActions(page, actions, opts = {}) {
     log.push(rec);
     if (failed) break;
   }
-  return { ok: !failed, steps: log, failed };
+  return { ok: !failed, steps: log, failed, page: pg };
 }
 
 function formatActionLog(result) {
@@ -2002,6 +2033,12 @@ function parseFlowFile(filePath) {
       out.push({ type, file: rest });
     } else if (type === 'assert-url') {
       out.push({ type, value: rest });
+    } else if (type === 'new-tab') {
+      out.push({ type, url: rest });
+    } else if (type === 'switch-tab') {
+      out.push({ type, index: parseInt(rest, 10) || 0 });
+    } else if (type === 'close-tab') {
+      out.push({ type });
     } else {
       out.push({ type, selector: rest });
     }
@@ -2011,7 +2048,8 @@ function parseFlowFile(filePath) {
 
 function normalizeAction(a) {
   if (a.type) return a;
-  const keys = ['click', 'fill', 'type', 'press', 'wait', 'wait-for', 'goto', 'screenshot', 'assert-exists', 'assert-text', 'assert-url'];
+  const keys = ['click', 'fill', 'type', 'press', 'wait', 'wait-for', 'goto', 'screenshot',
+    'assert-exists', 'assert-text', 'assert-url', 'new-tab', 'switch-tab', 'close-tab'];
   for (const k of keys) {
     if (k in a) {
       const rest = { ...a }; delete rest[k];
@@ -2022,10 +2060,39 @@ function normalizeAction(a) {
       if (k === 'screenshot') return { type: 'screenshot', file: a[k], full: !!rest.full };
       if (k === 'assert-text') return { type: 'assert-text', selector: a[k], value: a.value || rest.value || '' };
       if (k === 'assert-url') return { type: 'assert-url', value: a[k] };
+      if (k === 'new-tab') return { type: 'new-tab', url: a[k] || '' };
+      if (k === 'switch-tab') return { type: 'switch-tab', index: parseInt(a[k], 10) || 0 };
+      if (k === 'close-tab') return { type: 'close-tab' };
       return { type: k, selector: a[k], ...rest };
     }
   }
   throw new Error(`flow: unrecognized action keys in ${JSON.stringify(a)}`);
+}
+
+function formatBytes(n) {
+  if (n < 1024) return n + 'b';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'kb';
+  return (n / 1024 / 1024).toFixed(1) + 'mb';
+}
+
+function formatNetCapture(netLog, url) {
+  const lines = [];
+  lines.push(`NET CAPTURE: ${url}`);
+  lines.push('─'.repeat(64));
+  if (netLog.length === 0) {
+    lines.push('  (no XHR/fetch requests captured)');
+    return lines.join('\n');
+  }
+  const col = (s, w) => String(s == null ? '—' : s).padEnd(w).slice(0, w);
+  lines.push(`  ${'METHOD'.padEnd(7)} ${'ST'.padEnd(5)} ${'SIZE'.padEnd(8)} ${'MS'.padEnd(6)} URL`);
+  for (const r of netLog) {
+    const flag = r.blocked ? ' ✗' : r.status >= 500 ? ' !!' : r.status >= 400 ? ' !' : '';
+    lines.push(`  ${col(r.method, 7)} ${col(r.blocked ? 'BLK' : r.status, 5)} ${col(r.size != null ? formatBytes(r.size) : null, 8)} ${col(r.ms != null ? r.ms + 'ms' : null, 6)} ${r.shortUrl}${flag}`);
+  }
+  lines.push('─'.repeat(64));
+  const errors = netLog.filter(r => r.blocked || r.status >= 400).length;
+  lines.push(`  ${netLog.length} request${netLog.length !== 1 ? 's' : ''}${errors ? `  |  ${errors} error${errors !== 1 ? 's' : ''}` : ''}`);
+  return lines.join('\n');
 }
 
 module.exports = {
@@ -2051,4 +2118,5 @@ module.exports = {
   runActions,
   formatActionLog,
   parseFlowFile,
+  formatNetCapture,
 };

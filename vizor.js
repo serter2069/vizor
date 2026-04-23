@@ -68,6 +68,7 @@ const {
   runActions,
   formatActionLog,
   parseFlowFile,
+  formatNetCapture,
 } = require('./lib.js');
 
 const args = process.argv.slice(2);
@@ -90,6 +91,7 @@ function parseArgs(args) {
     aria: false,
     actions: [],
     actionsLog: false,
+    net: { capture: false, stubs: [], blocks: [] },
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -137,6 +139,20 @@ function parseArgs(args) {
     } else if (a === '--flow' && args[i + 1]) {
       const steps = parseFlowFile(args[++i]);
       opts.actions.push(...steps);
+    } else if (a === '--new-tab' && args[i + 1]) {
+      opts.actions.push({ type: 'new-tab', url: args[++i] });
+    } else if (a === '--new-tab-blank') {
+      opts.actions.push({ type: 'new-tab', url: '' });
+    } else if (a === '--switch-tab' && args[i + 1]) {
+      opts.actions.push({ type: 'switch-tab', index: parseInt(args[++i], 10) });
+    } else if (a === '--close-tab') {
+      opts.actions.push({ type: 'close-tab' });
+    } else if (a === '--net-capture') {
+      opts.net.capture = true;
+    } else if (a === '--net-stub' && args[i + 2]) {
+      opts.net.stubs.push({ pattern: args[++i], file: args[++i] });
+    } else if (a === '--net-block' && args[i + 1]) {
+      opts.net.blocks.push(args[++i]);
     } else if (a === '--actions-log') {
       opts.actionsLog = true;
     } else if (a === '--cdp' && args[i + 1]) {
@@ -183,6 +199,15 @@ Interactive actions (applied in order, before analysis mode):
   --screenshot FILE         save PNG to FILE
   --flow FILE               load actions from JSON array or line-based file
   --actions-log             always print the action log (default: only on failure)
+  --new-tab URL             open URL in new tab (switches active tab)
+  --new-tab-blank           open blank tab
+  --switch-tab N            switch active tab by index (0 = first)
+  --close-tab               close active tab, switch to previous
+
+Network:
+  --net-capture             capture all XHR/fetch, print summary after analysis
+  --net-stub PATTERN FILE   stub matching requests with JSON from FILE
+  --net-block PATTERN       abort requests matching PATTERN
 
 Setup:
   --viewport WxH    viewport size (default: 430x932)
@@ -204,6 +229,15 @@ Setup:
   }
 
   return opts;
+}
+
+function shortUrl(url) {
+  try {
+    const u = new URL(url);
+    return (u.pathname + (u.search || '')).slice(0, 80);
+  } catch {
+    return url.slice(0, 80);
+  }
 }
 
 // true if any of the analysis modes is selected
@@ -310,22 +344,74 @@ async function run() {
       // Describe mode benefits from deeper traversal (nav items, hero text often nested)
       if (opts.describe && opts.depth < 12) opts.depth = 12;
 
+      // Network interception — set up before first navigation
+      const netLog = [];
+      if (opts.net.stubs.length > 0) {
+        for (const stub of opts.net.stubs) {
+          const body = fs.readFileSync(stub.file, 'utf-8');
+          await page.route(stub.pattern, route => {
+            route.fulfill({ status: 200, contentType: 'application/json', body });
+          });
+        }
+      }
+      if (opts.net.blocks.length > 0) {
+        for (const pat of opts.net.blocks) {
+          await page.route(pat, route => route.abort());
+        }
+      }
+      if (opts.net.capture) {
+        const pending = new Map();
+        const SKIP_TYPES = new Set(['document', 'stylesheet', 'image', 'font', 'media', 'websocket', 'other']);
+        page.on('request', req => {
+          if (SKIP_TYPES.has(req.resourceType())) return;
+          pending.set(req.url(), { method: req.method(), t0: Date.now(), url: req.url(), shortUrl: shortUrl(req.url()), blocked: false });
+        });
+        page.on('response', async res => {
+          const entry = pending.get(res.url());
+          if (!entry) return;
+          entry.status = res.status();
+          entry.ms = Date.now() - entry.t0;
+          try { const buf = await res.body(); entry.size = buf.length; } catch { entry.size = 0; }
+          netLog.push({ ...entry });
+          pending.delete(res.url());
+        });
+        page.on('requestfailed', req => {
+          const entry = pending.get(req.url());
+          if (!entry) return;
+          entry.blocked = true;
+          entry.ms = Date.now() - entry.t0;
+          entry.size = 0;
+          netLog.push({ ...entry });
+          pending.delete(req.url());
+        });
+      }
+
       // Initial goto + render wait (extractTreeFromPage does its own goto too — but we need the page
       // loaded before actions run. If actions include an early --goto they'll override cleanly.)
       if (opts.actions.length > 0) {
         await page.goto(opts.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         try { await page.waitForLoadState('networkidle', { timeout: 4000 }); } catch {}
         await page.waitForTimeout(opts.wait);
-        const result = await runActions(page, opts.actions);
+        const result = await runActions(context, page, opts.actions);
         if (!result.ok || opts.actionsLog) {
           console.error(formatActionLog(result));
         }
         if (!result.ok) {
           process.exit(2);
         }
+        page = result.page || page;
         // If no analysis mode requested and no failure, print the success log and exit.
+        if (!hasAnalysisMode(opts) && !opts.net.capture) {
+          if (!opts.actionsLog) console.log(formatActionLog(result));
+          return;
+        }
         if (!hasAnalysisMode(opts)) {
           if (!opts.actionsLog) console.log(formatActionLog(result));
+          // fall through to print net capture
+          if (opts.net.capture) {
+            await page.waitForTimeout(300);
+            console.log('\n' + formatNetCapture(netLog, opts.url));
+          }
           return;
         }
         // Analysis mode: extract tree from CURRENT state (no re-goto).
@@ -409,6 +495,12 @@ async function run() {
           fs.writeFileSync(opts.save, output, 'utf-8');
           console.log(`\nSaved to ${opts.save}`);
         }
+      }
+
+      // Print net capture summary after any analysis mode
+      if (opts.net.capture) {
+        await page.waitForTimeout(300);
+        console.log('\n' + formatNetCapture(netLog, opts.url));
       }
     }
 
