@@ -88,6 +88,7 @@ function parseArgs(args) {
     describe: false,
     hover: null,
     sweep: false,
+    sweepViewports: null,
     aria: false,
     actions: [],
     actionsLog: false,
@@ -171,6 +172,12 @@ function parseArgs(args) {
       opts.hover = args[++i];
     } else if (a === '--sweep') {
       opts.sweep = true;
+    } else if (a === '--sweep-viewports' && args[i + 1]) {
+      opts.sweep = true;
+      opts.sweepViewports = args[++i].split(',').map(s => {
+        const [w, h] = s.trim().split('x').map(Number);
+        return { width: w, height: h };
+      }).filter(v => v.width && v.height);
     } else if (a === '--aria') {
       opts.aria = true;
     } else if (a === '--help' || a === '-h') {
@@ -182,7 +189,8 @@ Analysis modes (pick one; default is tree output):
   --aria            emit ARIA tree
   --hover SEL       capture :hover style delta for SEL
   --compare         compare mobile (430x932) vs desktop (1440x900)
-  --sweep           analyze across 5 viewports (320/430/768/1024/1440)
+  --sweep           analyze across 5 viewports: 320/430/768/1024/1440px
+  --sweep-viewports W1xH1,W2xH2,...  sweep with custom viewport list
   --diff FILE       compare current tree with saved baseline
 
 Interactive actions (applied in order, before analysis mode):
@@ -252,7 +260,7 @@ async function run() {
   try {
     if (opts.sweep) {
       // --sweep: analyze across multiple viewports
-      const viewports = [
+      const viewports = opts.sweepViewports || [
         { width: 320, height: 640 },
         { width: 430, height: 932 },
         { width: 768, height: 1024 },

@@ -35,8 +35,17 @@ vizor http://localhost:3000 --compare          # mobile vs desktop side-by-side
 | `--aria` | ARIA tree (roles, labels, hierarchy) |
 | `--hover SEL` | Style delta when hovering a selector |
 | `--compare` | Mobile (430×932) vs desktop (1440×900) side-by-side |
-| `--sweep` | Analyze across 5 viewports (320/430/768/1024/1440) |
+| `--sweep` | Analyze across 5 viewports: 320×640, 430×932, 768×1024, 1024×768, 1440×900 |
+| `--sweep-viewports W1xH1,...` | Sweep with a custom viewport list |
 | `--diff FILE` | Compare current tree against a saved baseline |
+
+```bash
+# Standard sweep — 5 breakpoints
+vizor http://localhost:3000 --sweep
+
+# Custom viewports
+vizor http://localhost:3000 --sweep-viewports 375x812,768x1024,1920x1080
+```
 
 ## Problem Detection (10 types)
 
