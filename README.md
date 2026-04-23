@@ -15,18 +15,28 @@ vizor https://myapp.com \
   --record-video /tmp/session.mp4           # record test session as video
 ```
 
-### Demo: stripe.com desktop (1440px) — 116 KB
+### Demo: click to play
 
-<video src="https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-stripe-desktop.mp4" controls autoplay loop muted playsinline width="100%"></video>
+> Idle frames removed automatically — a 30s test with 20s of waiting produces a compact video of actual changes only.
 
-### Demo: mobile 430px (44 KB) · vercel.com with click (166 KB)
+**stripe.com desktop 1440px — 116 KB** *(click to play)*
+
+[![stripe.com desktop demo](assets/demo-stripe-desktop-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-stripe-desktop.mp4)
 
 <table><tr>
-<td width="50%"><video src="https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-stripe-mobile.mp4" controls autoplay loop muted playsinline width="100%"></video></td>
-<td width="50%"><video src="https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-vercel.mp4" controls autoplay loop muted playsinline width="100%"></video></td>
-</tr></table>
+<td width="50%">
 
-Idle frames removed automatically — a 30s test with 20s of waiting produces a compact video of actual changes only.
+**stripe.com mobile 430px — 44 KB** *(click to play)*
+
+[![stripe.com mobile demo](assets/demo-stripe-mobile-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-stripe-mobile.mp4)
+
+</td><td width="50%">
+
+**vercel.com desktop + click — 166 KB** *(click to play)*
+
+[![vercel.com demo](assets/demo-vercel-thumb.jpg)](https://github.com/serter2069/vizor/releases/download/v0.1.0/demo-vercel.mp4)
+
+</td></tr></table>
 
 ---
 
