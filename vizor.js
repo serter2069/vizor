@@ -136,13 +136,15 @@ function parseArgs(args) {
       opts.actions.push({ type: 'goto', url: args[++i] });
     } else if (a === '--screenshot' && args[i + 1]) {
       opts.actions.push({ type: 'screenshot', file: args[++i] });
+    } else if ((a === '--full-screenshot' || a === '--fullpage') && args[i + 1]) {
+      opts.actions.push({ type: 'screenshot', file: args[++i], full: true });
     } else if (a === '--screenshot-quality' && args[i + 1]) {
       opts.screenshotQuality = parseInt(args[++i], 10);
     } else if (a === '--screenshot-width' && args[i + 1]) {
       opts.screenshotWidth = parseInt(args[++i], 10);
     } else if ((a === '--screenshot-webp' || a === '--ss') && args[i + 1]) {
-      // shortcut: --ss FILE → WebP at quality 55, 1200px max
-      opts.actions.push({ type: 'screenshot', file: args[++i].replace(/(\.\w+)?$/, '.webp') });
+      // shortcut: --ss FILE → WebP at quality 55, 1200px max, full page
+      opts.actions.push({ type: 'screenshot', file: args[++i].replace(/(\.\w+)?$/, '.webp'), full: true });
       if (!opts.screenshotQuality) opts.screenshotQuality = 55;
       if (!opts.screenshotWidth) opts.screenshotWidth = 1200;
     } else if (a === '--get' && args[i + 1]) {
