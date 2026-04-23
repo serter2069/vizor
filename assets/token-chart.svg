@@ -1,80 +1,53 @@
 <svg width="720" height="360" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="vizorGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#22c55e"/>
-      <stop offset="100%" style="stop-color:#16a34a"/>
-    </linearGradient>
-    <linearGradient id="otherGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#f97316"/>
-      <stop offset="100%" style="stop-color:#ea580c"/>
-    </linearGradient>
-    <linearGradient id="screenshotGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#64748b"/>
-      <stop offset="100%" style="stop-color:#475569"/>
-    </linearGradient>
-  </defs>
-
-  <!-- Background -->
   <rect width="720" height="360" fill="#0d1117" rx="12"/>
 
-  <!-- Title -->
   <text x="36" y="38" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15" font-weight="600" fill="#f0f6fc">Token cost to analyze a page — real benchmark (linear.app)</text>
   <text x="36" y="58" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e">Lower is better. Measured on linear.app, April 2024.</text>
 
-  <!-- Grid lines -->
   <line x1="220" y1="78" x2="220" y2="310" stroke="#21262d" stroke-width="1"/>
   <line x1="340" y1="78" x2="340" y2="310" stroke="#21262d" stroke-width="1"/>
   <line x1="460" y1="78" x2="460" y2="310" stroke="#21262d" stroke-width="1"/>
   <line x1="580" y1="78" x2="580" y2="310" stroke="#21262d" stroke-width="1"/>
   <line x1="680" y1="78" x2="680" y2="310" stroke="#21262d" stroke-width="1"/>
 
-  <!-- Grid labels -->
   <text x="220" y="324" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" fill="#484f58" text-anchor="middle">1k</text>
   <text x="340" y="324" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" fill="#484f58" text-anchor="middle">2k</text>
   <text x="460" y="324" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" fill="#484f58" text-anchor="middle">3k</text>
   <text x="580" y="324" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" fill="#484f58" text-anchor="middle">4k</text>
   <text x="680" y="324" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" fill="#484f58" text-anchor="middle">5k</text>
 
-  <!-- Bar 1: vizor --problems 503 tokens → 503/5038*460=45.9px -->
   <text x="212" y="103" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e" text-anchor="end">vizor --problems</text>
-  <rect x="220" y="88" width="46" height="22" fill="url(#vizorGrad)" rx="3"/>
+  <rect x="220" y="88" width="46" height="22" fill="#22c55e" rx="3"/>
   <text x="272" y="103" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" font-weight="700" fill="#22c55e">503</text>
-  <text x="320" y="103" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" fill="#484f58">10× cheaper than snapshot</text>
+  <text x="340" y="103" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" fill="#484f58">10x cheaper than snapshot</text>
 
-  <!-- Bar 2: vizor --describe 1146 tokens → 1146/5038*460=104.7px -->
   <text x="212" y="135" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e" text-anchor="end">vizor --describe</text>
-  <rect x="220" y="120" width="105" height="22" fill="url(#vizorGrad)" rx="3"/>
+  <rect x="220" y="120" width="105" height="22" fill="#22c55e" rx="3"/>
   <text x="331" y="135" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" font-weight="700" fill="#22c55e">1,146</text>
 
-  <!-- Bar 3: vizor tree 2185 tokens → 2185/5038*460=199.5px -->
   <text x="212" y="167" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e" text-anchor="end">vizor tree</text>
-  <rect x="220" y="152" width="200" height="22" fill="url(#vizorGrad)" rx="3"/>
+  <rect x="220" y="152" width="200" height="22" fill="#22c55e" rx="3"/>
   <text x="426" y="167" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" font-weight="700" fill="#22c55e">2,185</text>
 
-  <!-- Divider -->
   <line x1="36" y1="190" x2="684" y2="190" stroke="#21262d" stroke-width="1" stroke-dasharray="4,4"/>
 
-  <!-- Bar 4: Screenshot vision ~1100 tokens → 100.5px -->
   <text x="212" y="215" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e" text-anchor="end">screenshot (vision)*</text>
-  <rect x="220" y="200" width="101" height="22" fill="url(#screenshotGrad)" rx="3"/>
-  <text x="327" y="215" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e">~1,100</text>
-  <text x="400" y="215" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" fill="#484f58">* no dimensions, no colors, no structure</text>
+  <rect x="220" y="200" width="101" height="22" fill="#64748b" rx="3"/>
+  <text x="327" y="215" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#94a3b8">~1,100</text>
+  <text x="410" y="215" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" fill="#484f58">* no dimensions, colors, or structure</text>
 
-  <!-- Bar 5: Playwright ARIA 4332 → 4332/5038*460=395.5px -->
   <text x="212" y="247" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e" text-anchor="end">playwright aria snapshot</text>
-  <rect x="220" y="232" width="396" height="22" fill="url(#otherGrad)" rx="3"/>
-  <text x="622" y="247" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#f97316">4,332</text>
+  <rect x="220" y="232" width="396" height="22" fill="#f97316" rx="3"/>
+  <text x="622" y="247" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" font-weight="700" fill="#f97316">4,332</text>
 
-  <!-- Bar 6: agent-browser snapshot 5038 → 460px -->
   <text x="212" y="279" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e" text-anchor="end">agent-browser snapshot</text>
-  <rect x="220" y="264" width="460" height="22" fill="url(#otherGrad)" rx="3"/>
-  <text x="686" y="279" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#f97316">5,038</text>
+  <rect x="220" y="264" width="460" height="22" fill="#f97316" rx="3"/>
+  <text x="686" y="279" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" font-weight="700" fill="#f97316">5,038</text>
 
-  <!-- Legend -->
   <rect x="36" y="336" width="12" height="12" fill="#22c55e" rx="2"/>
   <text x="54" y="347" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e">vizor</text>
   <rect x="110" y="336" width="12" height="12" fill="#64748b" rx="2"/>
   <text x="128" y="347" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e">screenshot (vision)</text>
-  <rect x="270" y="336" width="12" height="12" fill="#f97316" rx="2"/>
-  <text x="288" y="347" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e">other tools</text>
+  <rect x="280" y="336" width="12" height="12" fill="#f97316" rx="2"/>
+  <text x="298" y="347" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#8b949e">other tools</text>
 </svg>

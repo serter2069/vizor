@@ -16,7 +16,7 @@ vs **4,332–5,038 tokens** for a Playwright/agent-browser accessibility snapsho
 
 Tested on [linear.app](https://linear.app), April 2024. Same site, same task: *"what layout problems exist?"*
 
-![Token comparison chart](assets/token-chart.svg)
+![Token comparison chart](assets/token-chart.png)
 
 | Tool | Output | Tokens | Has dimensions? | Has colors? | Has problems list? |
 |------|--------|--------|----------------|-------------|-------------------|
