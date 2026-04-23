@@ -295,6 +295,8 @@ screenshot-diff /tmp/baseline.png
 --depth N                 Tree depth (default: 8)
 --wait N                  Initial render wait in ms (default: 2000)
 --no-warnings             Hide warning markers in tree
+--headed                  Show browser window (headless by default)
+--slow-mo N               Slow down actions by N ms (useful with --headed)
 --cdp PORT                Connect to existing browser via CDP
 --save FILE               Save analysis output to file
 --actions-log             Always print action log (default: only on failure)
@@ -327,27 +329,36 @@ There are three popular browser tools used by AI agents today. Here's how they c
 | [Playwright MCP](https://github.com/microsoft/playwright-mcp) ARIA | text | 4,332 | ❌ | ❌ | ❌ |
 | [agent-browser](https://agent-browser.dev) snapshot | text | 5,038 | ❌ | ❌ | ❌ |
 
+> Benchmark measured April 2026.
+
 ---
 
 ## Tool-by-Tool Breakdown
 
 ### [Playwright MCP](https://github.com/microsoft/playwright-mcp) — by Microsoft
 
-MCP server that connects Claude/AI assistants to a browser. Best-in-class for natural-language-driven automation inside an AI conversation.
+MCP server + CLI (`npx @playwright/mcp`) that connects Claude/AI assistants to a browser. Has two modes: ARIA-based (default) and `--vision` (screenshot-based).
+
+```bash
+npx @playwright/mcp --headed         # headed by default
+npx @playwright/mcp --vision         # screenshot-based mode
+npx @playwright/mcp --headless       # headless
+```
 
 **Strengths:**
-- Deep IDE/Claude integration as MCP server
+- Native MCP integration with Claude — best for conversational browser control
+- Headed by default — user sees every click in real time
+- `--vision` mode: AI navigates by screenshots instead of ARIA tree
+- Video, traces, PDF, geo emulation, offline mode
 - Full Playwright API surface
-- Headed mode (user sees the browser)
-- Video, traces, network inspection
 
 **Limitations:**
-- Outputs ARIA accessibility tree — no layout dimensions, no colors
-- No built-in problem detection
-- Not designed as a standalone CLI
-- Screenshot = PNG only, no optimization
+- ARIA mode: no layout dimensions, no colors, no problem detection
+- Vision mode: high token cost, no structured data
+- Not optimized for automated batch runs
+- Screenshots PNG only, no WebP/JPEG optimization
 
-**Best for:** Natural-language browser control inside Claude, pair-review sessions where the user watches the browser.
+**Best for:** Pair-review sessions inside Claude where the user watches the browser. Vision mode for sites where ARIA is broken.
 
 ---
 
@@ -413,7 +424,7 @@ Polished CLI designed for AI agents. Rich command set, good ergonomics.
 | **Multi-viewport sweep** | ✅ | ❌ | ❌ |
 | **WebP/JPEG optimized screenshots** | ✅ | ❌ | ❌ |
 | Pixel regression | ✅ | ❌ | ✅ |
-| Headed mode (user sees browser) | ❌ | ✅ | ✅ |
+| Headed mode (user sees browser) | ✅ `--headed` | ✅ default | ✅ |
 | Video recording | ❌ | ✅ | ✅ |
 | PDF export | ❌ | ✅ | ✅ |
 | Geo / offline emulation | ❌ | ✅ | ✅ |

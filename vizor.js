@@ -93,6 +93,8 @@ function parseArgs(args) {
     aria: false,
     actions: [],
     actionsLog: false,
+    headed: false,
+    slowMo: 0,
     net: { capture: false, stubs: [], blocks: [] },
     screenshotQuality: null,
     screenshotWidth: null,
@@ -210,6 +212,10 @@ function parseArgs(args) {
       opts.net.blocks.push(args[++i]);
     } else if (a === '--actions-log') {
       opts.actionsLog = true;
+    } else if (a === '--headed') {
+      opts.headed = true;
+    } else if (a === '--slow-mo' && args[i + 1]) {
+      opts.slowMo = parseInt(args[++i], 10);
     } else if (a === '--cdp' && args[i + 1]) {
       opts.cdp = parseInt(args[++i], 10);
     } else if (a === '--save' && args[i + 1]) {
@@ -353,7 +359,7 @@ async function run() {
         { width: 1024, height: 768 },
         { width: 1440, height: 900 },
       ];
-      browser = await chromium.launch({ headless: true });
+      browser = await chromium.launch({ headless: !opts.headed, slowMo: opts.slowMo || 0 });
       const results = [];
       for (const vp of viewports) {
         try {
@@ -379,7 +385,7 @@ async function run() {
       if (opts.cdp) {
         browser = await chromium.connectOverCDP(`http://127.0.0.1:${opts.cdp}`);
       } else {
-        browser = await chromium.launch({ headless: true });
+        browser = await chromium.launch({ headless: !opts.headed, slowMo: opts.slowMo || 0 });
       }
 
       const outputs = [];
@@ -430,7 +436,7 @@ async function run() {
         page = context.pages()[0] || await context.newPage();
         await page.setViewportSize(opts.viewport);
       } else {
-        browser = await chromium.launch({ headless: true });
+        browser = await chromium.launch({ headless: !opts.headed, slowMo: opts.slowMo || 0 });
         context = await browser.newContext({ viewport: opts.viewport });
         page = await context.newPage();
       }
