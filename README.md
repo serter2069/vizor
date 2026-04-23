@@ -10,7 +10,20 @@ vizor https://myapp.com \
   --click "button[type=submit]" \
   --assert-url "/dashboard" \
   --problems                                # login + analyze in one command
+vizor https://myapp.com \
+  --flow tests/login.flow \
+  --record-video /tmp/session.mp4           # record test session as video
 ```
+
+### Demo videos (stripe.com)
+
+Idle frames are automatically removed — a 30s test with 20s of waiting produces a compact video of actual changes only.
+
+| Viewport | Video | Size |
+|----------|-------|------|
+| Desktop 1440px | [demo-stripe-desktop.mp4](assets/demo-stripe-desktop.mp4) | 116 KB |
+| Mobile 430px | [demo-stripe-mobile.mp4](assets/demo-stripe-mobile.mp4) | 44 KB |
+| Click interaction (vercel.com) | [demo-vercel.mp4](assets/demo-vercel.mp4) | 166 KB |
 
 ---
 
@@ -116,6 +129,7 @@ vizor https://app.com \
 | `--upload SEL FILE...` | Set files on `<input type="file">` |
 | `--hover SEL` | Hover element (also works as analysis mode) |
 | `--wait-for SEL` | Wait until selector visible (10s max) |
+| `--wait-gone SEL` | Wait until selector hidden/removed (10s max) |
 | `--wait-ms N` | Sleep N milliseconds |
 
 ### Assertions
@@ -203,6 +217,52 @@ vizor https://app.com --screenshot-diff /tmp/baseline.png 2.0
 # Output on pass:  ✓  screenshot-diff  0.00% diff (0 px) — OK
 # Output on fail:  ✗  screenshot-diff  72.59% exceeds threshold 0.5%
 ```
+
+---
+
+## Video Recording
+
+Record any session — headless, automated, CI-friendly. Uses Playwright's built-in recording, re-encoded via ffmpeg with idle-frame removal.
+
+```bash
+# Basic — records full session, saves as mp4
+vizor https://app.com \
+  --flow tests/login.flow \
+  --record-video /tmp/session.mp4
+
+# With skeleton-aware waiting (no hardcoded delays)
+vizor https://app.com \
+  --flow tests/login.flow \
+  --wait-gone '[data-testid="skeleton"]' \
+  --record-video /tmp/session.mp4
+
+# Save as WebM (no ffmpeg required)
+vizor https://app.com --flow tests/flow.flow --record-video /tmp/session.webm
+
+# Custom fps and quality
+vizor https://app.com --flow tests/flow.flow \
+  --record-video /tmp/session.mp4 \
+  --video-fps 5 \
+  --video-quality 35
+```
+
+| Flag | Default | What it does |
+|------|---------|-------------|
+| `--record-video FILE` | — | Save session to FILE (.mp4 via ffmpeg, .webm fallback) |
+| `--video-fps N` | `2` | Frames per second for mp4 output |
+| `--video-quality N` | `40` | ffmpeg CRF (1–51, lower = better quality) |
+
+**How idle-frame removal works:** ffmpeg `mpdecimate` filter strips consecutive near-identical frames before encoding. A 30-second test with 20 seconds of spinner/skeleton waiting becomes a compact video showing only the actual state changes.
+
+**File sizes (real-world flows):**
+
+| Content | Duration | Raw WebM | mp4 (2fps, CRF 40) |
+|---------|----------|----------|--------------------|
+| Static page | 3s | 79 KB | **5 KB** |
+| Click + navigate | ~2s | — | **7 KB** |
+| Full auth flow (6 screens) | ~30s recorded | — | **35 KB** |
+
+> Requires ffmpeg for `.mp4` output (`brew install ffmpeg`). Falls back to `.webm` automatically if ffmpeg is not found.
 
 ---
 
@@ -398,7 +458,6 @@ Polished CLI designed for AI agents. Rich command set, good ergonomics.
 
 **Limitations:**
 - No headed mode (always headless)
-- No video recording
 - No PDF export
 - No geo/offline emulation (yet)
 
@@ -425,7 +484,7 @@ Polished CLI designed for AI agents. Rich command set, good ergonomics.
 | **WebP/JPEG optimized screenshots** | ✅ | ❌ | ❌ |
 | Pixel regression | ✅ | ❌ | ✅ |
 | Headed mode (user sees browser) | ✅ `--headed` | ✅ default | ✅ |
-| Video recording | ❌ | ✅ | ✅ |
+| Video recording | ✅ | ✅ | ✅ |
 | PDF export | ❌ | ✅ | ✅ |
 | Geo / offline emulation | ❌ | ✅ | ✅ |
 | Standalone CLI | ✅ | ✅ `npx @playwright/mcp` | ✅ |
@@ -443,7 +502,7 @@ Polished CLI designed for AI agents. Rich command set, good ergonomics.
 | Scripted automation (forms, clicks, flows) | **vizor** |
 | Pair-session, user watches browser | **vizor `--headed`** |
 | Need headed browser | **vizor `--headed`** |
-| Need video recording | Playwright MCP or agent-browser |
+| Record test session as video | **vizor** |
 | Need PDF export | Playwright MCP or agent-browser |
 | Need geo / offline emulation | Playwright MCP or agent-browser |
 
