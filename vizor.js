@@ -136,6 +136,16 @@ function parseArgs(args) {
       opts.actions.push({ type: 'wait-gone', selector: args[++i] });
     } else if (a === '--eval' && args[i + 1]) {
       opts.actions.push({ type: 'eval', js: args[++i] });
+    } else if ((a === '--init-ls' || a === '--init-local-storage') && args[i + 1]) {
+      // KEY=VALUE → localStorage.setItem(KEY, VALUE) before navigation (via addInitScript).
+      // Useful for auth-token injection when screenshotting protected routes.
+      // Can be passed multiple times.
+      opts.initLocalStorage = opts.initLocalStorage || [];
+      const kv = args[++i];
+      const eq = kv.indexOf('=');
+      if (eq > 0) {
+        opts.initLocalStorage.push({ key: kv.slice(0, eq), value: kv.slice(eq + 1) });
+      }
     } else if (a === '--wait-ms' && args[i + 1]) {
       opts.actions.push({ type: 'wait', ms: parseInt(args[++i], 10) });
     } else if (a === '--click' && args[i + 1]) {
@@ -556,6 +566,19 @@ async function run() {
       // Describe mode benefits from deeper traversal (nav items, hero text often nested)
       if (opts.describe && opts.depth < 12) opts.depth = 12;
 
+      // Inject localStorage entries BEFORE navigation (auth tokens, feature flags, etc.)
+      if (opts.initLocalStorage && opts.initLocalStorage.length > 0) {
+        try {
+          await page.addInitScript((entries) => {
+            try {
+              for (const { key, value } of entries) {
+                localStorage.setItem(key, value);
+              }
+            } catch (e) { /* e.g. sandboxed iframe — ignore */ }
+          }, opts.initLocalStorage);
+        } catch {}
+      }
+
       // Network interception — set up before first navigation
       const netLog = [];
       if (opts.net.stubs.length > 0) {
@@ -766,7 +789,7 @@ async function runMosaic(argv) {
   const opts = {
     urls: [], metro: null, appUrl: null, viewport: 'mobile',
     out: null, quality: 65, wait: 2500, concurrency: 4,
-    skip: [], group: null, urlsFile: null,
+    skip: [], group: null, urlsFile: null, initLs: [],
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -781,6 +804,7 @@ async function runMosaic(argv) {
     else if (a === '--concurrency' && argv[i+1]) opts.concurrency = parseInt(argv[++i]);
     else if (a === '--group'    && argv[i+1]) opts.group     = argv[++i];
     else if (a === '--skip'     && argv[i+1]) opts.skip.push(argv[++i]);
+    else if ((a === '--init-ls' || a === '--init-local-storage') && argv[i+1]) opts.initLs.push(argv[++i]);
     else if ((a === '--urls-file' || a === '--file') && argv[i+1]) opts.urlsFile = argv[++i];
     else if (a === '--help' || a === '-h') {
       console.log(`Usage: vizor mosaic [URLs...] [options]
@@ -863,14 +887,17 @@ Output:
   async function doScreenshot(url, idx) {
     const outFile = path.join(tmpDir, `screen-${idx}.webp`);
     const { spawnSync } = require('child_process');
-    const res = spawnSync(process.argv[1], [
+    const args = [
       url,
       '--viewport', `${vp.w}x${vp.h}`,
       '--wait', String(opts.wait),
       '--full-screenshot', outFile,
       '--screenshot-quality', '70',
       '--screenshot-width', String(vp.thumbW),
-    ], { stdio: 'pipe', timeout: 35000 });
+    ];
+    // Propagate localStorage injection (e.g. auth tokens) to every page
+    for (const kv of (opts.initLs || [])) args.push('--init-ls', kv);
+    const res = spawnSync(process.argv[1], args, { stdio: 'pipe', timeout: 35000 });
     return (res.status === 0 && fsSync.existsSync(outFile)) ? outFile : null;
   }
 
