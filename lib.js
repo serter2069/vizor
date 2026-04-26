@@ -474,7 +474,17 @@ async function extractLayout(maxDepth) {
       const hasText = textContent || (el.innerText || '').trim().length > 0;
       if (hasText) warnings.push(`tiny-text (${fontSize}px)`);
     }
-    if (w > 0 && (x + w < 0 || x > vw)) {
+    // Suppress offscreen for elements inside any scrollable ancestor (FlatList/ScrollView horizontal)
+    const hasScrollableAncestor = (() => {
+      let p = el.parentElement;
+      while (p && p !== document.body) {
+        const cs = window.getComputedStyle(p);
+        if (cs.overflowX === 'auto' || cs.overflowX === 'scroll') return true;
+        p = p.parentElement;
+      }
+      return false;
+    })();
+    if (w > 0 && (x + w < 0 || x > vw) && !hasScrollableAncestor) {
       warnings.push(`offscreen (x:${x})`);
     }
     if (isInteractive && !textContent && !ariaLabel && !titleAttr && !placeholder && tag !== 'input') {
