@@ -563,7 +563,12 @@ function extractLayout(maxDepth) {
     }
 
     // WCAG contrast ratio (text only; ignore empty/whitespace nodes)
-    if (fontSize && textContent && textContent.length >= 2 && opacity > 0.3) {
+    // Skip container elements that have child elements — their color is inherited (e.g. Pressable/View
+    // in RN Web reads color:black from body even though inner Text has color:white). Check only
+    // leaf elements or elements whose direct text content matches their own textContent (pure text nodes).
+    const hasChildElements = el.children.length > 0;
+    const directTextLen = Array.from(el.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent || '').join('').trim().length;
+    if (fontSize && textContent && textContent.length >= 2 && opacity > 0.3 && (!hasChildElements || directTextLen >= 2)) {
       const fg = resolveColor(style.color);
       if (fg && fg[3] >= 0.3) {
         const bg = findAncestorBg(el);
@@ -1963,6 +1968,36 @@ function formatSweep(results, url) {
 }
 
 
+// RN Web dev builds render ScrollView as an inner <div overflow:auto> rather than
+// letting the document grow. Playwright's fullPage reads document.scrollHeight and
+// gets only viewport height. Workaround: if the document isn't taller than the
+// viewport but an inner scrollable div is, enlarge the viewport to match the inner
+// scrollHeight — RNW ScrollView then expands and fullPage captures everything.
+async function ensureFullContentVisible(page) {
+  try {
+    const vp = page.viewportSize();
+    if (!vp) return null;
+    const inner = await page.evaluate((vpH) => {
+      if (document.documentElement.scrollHeight > vpH + 20) return null;
+      let best = 0;
+      document.querySelectorAll('div').forEach(el => {
+        const sh = el.scrollHeight;
+        if (sh > best) {
+          const cs = getComputedStyle(el);
+          if (cs.overflowY === 'auto' || cs.overflowY === 'scroll') best = sh;
+        }
+      });
+      return best > vpH + 20 ? best : null;
+    }, vp.height);
+    if (!inner) return null;
+    // Cap at 16384 — playwright's screenshot ceiling on most engines is ~16k px
+    const target = Math.min(inner, 16000);
+    await page.setViewportSize({ width: vp.width, height: target });
+    await page.waitForTimeout(400);
+    return vp; // original, for restore
+  } catch (_) { return null; }
+}
+
 // Helper: take a screenshot with optional JPEG/WebP compression and resize via sharp.
 async function takeScreenshot(page, file, opts, fullPage) {
   const path = require('path');
@@ -1972,6 +2007,10 @@ async function takeScreenshot(page, file, opts, fullPage) {
   const ext = path.extname(file).toLowerCase();
   const quality = opts.screenshotQuality;
   const maxWidth = opts.screenshotWidth;
+
+  // For fullPage, detect the RN Web inner-scroll trick and resize viewport if needed.
+  let originalVp = null;
+  if (fullPage) originalVp = await ensureFullContentVisible(page);
 
   if (ext === '.webp' || maxWidth) {
     const vizorHome = opts.vizorHome || path.join(os.homedir(), '.vizor');
@@ -1991,6 +2030,7 @@ async function takeScreenshot(page, file, opts, fullPage) {
       }
     }
     const buf = await page.screenshot({ fullPage });
+    if (originalVp) { try { await page.setViewportSize(originalVp); } catch (_) {} }
     let img = sharp(buf);
     if (maxWidth) img = img.resize({ width: maxWidth, withoutEnlargement: true });
     img = ext === '.webp' ? img.webp({ quality: quality || 55 }) :
@@ -1999,9 +2039,11 @@ async function takeScreenshot(page, file, opts, fullPage) {
     return file;
   } else if (ext === '.jpg' || ext === '.jpeg') {
     await page.screenshot({ path: file, type: 'jpeg', quality: quality || 70, fullPage });
+    if (originalVp) { try { await page.setViewportSize(originalVp); } catch (_) {} }
     return file;
   } else {
     await page.screenshot({ path: file, fullPage });
+    if (originalVp) { try { await page.setViewportSize(originalVp); } catch (_) {} }
     return file;
   }
 }

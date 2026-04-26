@@ -790,6 +790,7 @@ async function runMosaic(argv) {
     urls: [], metro: null, appUrl: null, viewport: 'mobile',
     out: null, quality: 65, wait: 2500, concurrency: 4,
     skip: [], group: null, urlsFile: null, initLs: [],
+    keepPagesDir: null,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -806,6 +807,7 @@ async function runMosaic(argv) {
     else if (a === '--skip'     && argv[i+1]) opts.skip.push(argv[++i]);
     else if ((a === '--init-ls' || a === '--init-local-storage') && argv[i+1]) opts.initLs.push(argv[++i]);
     else if ((a === '--urls-file' || a === '--file') && argv[i+1]) opts.urlsFile = argv[++i];
+    else if (a === '--keep-pages' && argv[i+1]) opts.keepPagesDir = argv[++i];
     else if (a === '--help' || a === '-h') {
       console.log(`Usage: vizor mosaic [URLs...] [options]
 
@@ -825,7 +827,8 @@ Output:
   --quality N                WebP quality 1-100 (default: 65)
   --wait N                   Wait ms per page (default: 2500)
   --concurrency N            Parallel screenshots (default: 4)
-  --skip PATTERN             Skip URLs containing PATTERN`);
+  --skip PATTERN             Skip URLs containing PATTERN
+  --keep-pages DIR           Also save individual full-res per-page webp files + index.json into DIR`);
       process.exit(0);
     }
     else if (!a.startsWith('--')) opts.urls.push(a);
@@ -967,6 +970,20 @@ Output:
 
   const sizeMB = (fsSync.statSync(opts.out).size/1024/1024).toFixed(2);
   console.log(`[vizor mosaic] Done: ${opts.out} (${sizeMB} MB) | ${ok.length}/${entries.length} screens | ${cols}×${rows} grid`);
+
+  if (opts.keepPagesDir) {
+    fsSync.mkdirSync(opts.keepPagesDir, { recursive: true });
+    const index = [];
+    for (let i = 0; i < ok.length; i++) {
+      const src = ok[i].file;
+      const dst = path.join(opts.keepPagesDir, `screen-${i}.webp`);
+      fsSync.copyFileSync(src, dst);
+      index.push({ idx: i, label: ok[i].label, url: ok[i].url, file: `screen-${i}.webp` });
+    }
+    fsSync.writeFileSync(path.join(opts.keepPagesDir, 'index.json'), JSON.stringify(index, null, 2));
+    console.log(`[vizor mosaic] Kept ${index.length} per-page files → ${opts.keepPagesDir}`);
+  }
+
   fsSync.rmSync(tmpDir, { recursive: true, force: true });
 }
 
