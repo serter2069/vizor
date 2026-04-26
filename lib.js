@@ -156,7 +156,7 @@ async function extractLayout(maxDepth) {
     return out;
   }
 
-  function walk(el, depth) {
+  async function walk(el, depth) {
     if (depth > maxDepth) return null;
     const style = window.getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden') return null;
@@ -605,7 +605,7 @@ async function extractLayout(maxDepth) {
 
     const children = [];
     for (const child of el.children) {
-      const c = walk(child, depth + 1);
+      const c = await walk(child, depth + 1);
       if (c) children.push(c);
     }
 
