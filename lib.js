@@ -1,6 +1,6 @@
 const fs = require('fs');
 
-function extractLayout(maxDepth) {
+async function extractLayout(maxDepth) {
   // This function runs inside page.evaluate
   // Manual oklab/oklch → sRGB hex (Chromium canvas sometimes can't parse these)
   function parseModernColor(str) {
@@ -518,12 +518,23 @@ function extractLayout(maxDepth) {
 
       // Naked input: <input>/<textarea>/<select> with NO RN border — default native input
       // (hard to see on most backgrounds). Skip contenteditable (usually styled div).
+      // Also skip if the direct parent has an RN border (OTP/PIN pattern: styled wrapper + bare input).
       if (!hasRNBorder && (tag === 'input' || tag === 'textarea' || tag === 'select')) {
         const typeAttr = (el.getAttribute && el.getAttribute('type')) || '';
         // Skip input types that don't render a visible frame
         const skipTypes = new Set(['hidden', 'checkbox', 'radio', 'submit', 'button', 'reset', 'image', 'range', 'color', 'file']);
         if (!skipTypes.has(typeAttr)) {
-          warnings.push('naked-input (no border — default native frame)');
+          // Skip if parent element provides the visual frame (RN OTP/PIN cell pattern)
+          const parentEl = el.parentElement;
+          const parentHasBorder = parentEl ? (() => {
+            const ps = window.getComputedStyle(parentEl);
+            const pbw = Math.max(parseFloat(ps.borderTopWidth)||0, parseFloat(ps.borderRightWidth)||0,
+                                 parseFloat(ps.borderBottomWidth)||0, parseFloat(ps.borderLeftWidth)||0);
+            return pbw > 0 && ps.borderStyle !== 'none';
+          })() : false;
+          if (!parentHasBorder) {
+            warnings.push('naked-input (no border — default native frame)');
+          }
         }
       }
 
@@ -535,6 +546,8 @@ function extractLayout(maxDepth) {
         try {
           const prevActive = document.activeElement;
           el.focus({ preventScroll: true });
+          // Wait one rAF for React state-driven styles (e.g. boxShadow via onFocus) to re-render
+          await new Promise(r => requestAnimationFrame(r));
           if (document.activeElement === el) {
             const csFocused = window.getComputedStyle(el);
             const outlineStyleF = csFocused.outlineStyle || '';
