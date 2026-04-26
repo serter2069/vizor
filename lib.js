@@ -549,7 +549,13 @@ function extractLayout(maxDepth) {
             // Dev killed native outline → must provide another focus indicator
             const outlineRemoved = !hasNativeOutlineOnFocus;
             const shadowUnchanged = shadowFocused === shadowBaseline;
-            if (outlineRemoved && shadowUnchanged) {
+            // Also accept borderColor/borderWidth change as a valid focus indicator (RN Web pattern)
+            const borderColorBase = style.borderColor || '';
+            const borderColorFocused = csFocused.borderColor || '';
+            const borderWidthBase = style.borderWidth || '';
+            const borderWidthFocused = csFocused.borderWidth || '';
+            const borderChanged = borderColorBase !== borderColorFocused || borderWidthBase !== borderWidthFocused;
+            if (outlineRemoved && shadowUnchanged && !borderChanged) {
               warnings.push('no-focus-indicator (outline:none and boxShadow unchanged on focus)');
             }
           }
@@ -925,7 +931,7 @@ function formatProblems(problems, url, viewport) {
           desc = m ? ` — ${m[1]}` : ` — RN border + native outline on focus (double frame)`;
         }
         else if (t === 'naked-input') desc = ` — default native frame (hard to see, add styled border)`;
-        else if (t === 'no-focus-indicator') desc = ` — outline:none with no boxShadow change on focus (a11y fail)`;
+        else if (t === 'no-focus-indicator') desc = ` — outline:none with no boxShadow or borderColor/borderWidth change on focus (a11y fail)`;
         const stable = p.stableSelector && p.stableSelector !== p.selector
           ? `  ⟶  ${p.stableSelector}`
           : '';
